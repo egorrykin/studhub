@@ -4,6 +4,14 @@
 {% block body %}
 
 <style>
+  /* ─── Отменяем обрезку подписи под логотипом на странице логина ─── */
+  .login-logo .logo-text .bot-line{
+    max-width: none !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: nowrap;
+  }
+
   /* ─── Капча: не вылезает за пределы бокса ─── */
   .captcha-wrap{
     display:flex;
@@ -30,7 +38,6 @@
     .captcha-wrap{
       transform:scale(0.88);
       transform-origin:center center;
-      /* компенсируем уменьшение, чтобы не было пустого места */
       margin-top:0;
       margin-bottom:-8px;
     }
