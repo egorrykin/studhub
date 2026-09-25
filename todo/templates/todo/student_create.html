@@ -1,4 +1,5 @@
 {% extends 'todo/base.html' %}
+{% load static %}
 {% block title %}Новый студент · {{ user_group_name }}{% endblock %}
 {% block content %}
 
@@ -8,7 +9,7 @@
   Передайте студенту email и пароль.
 </p>
 
-<form method="post" class="card" style="max-width:640px" autocomplete="off">
+<form method="post" class="card" style="max-width:640px" autocomplete="off" id="student-form">
   {% csrf_token %}
 
   {% if form.non_field_errors %}
@@ -25,9 +26,73 @@
   </div>
   {% endfor %}
 
+  {# ─── Yandex SmartCaptcha ─── #}
+  <div class="field">
+    <label>Подтвердите, что вы не робот</label>
+    <div
+            id="captcha-container"
+            class="smart-captcha"
+            data-sitekey="{{ YANDEX_SMARTCAPTCHA_CLIENT_KEY }}"
+            data-callback="onCaptchaSuccess"
+            style="height: 100px; margin-top: 8px;"
+    ></div>
+  </div>
+
   <div class="form-actions">
-    <button type="submit" class="btn">Создать аккаунт</button>
+    <button type="submit" class="btn" id="submit-btn" disabled>Пройдите капчу</button>
     <a href="{% url 'students' %}" class="btn ghost">Отмена</a>
   </div>
 </form>
+
+<script src="https://smartcaptcha.yandexcloud.net/captcha.js" defer></script>
+<script>
+  // Колбэк, который вызывает SmartCaptcha после успешного прохождения
+  function onCaptchaSuccess(token) {
+    var btn = document.getElementById('submit-btn');
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Создать аккаунт';
+    }
+  }
+
+  // Дополнительная защита: если капча сбросилась (токен истёк) — снова блокируем
+  function onCaptchaTokenExpired() {
+    var btn = document.getElementById('submit-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Пройдите капчу';
+    }
+  }
+
+  (function(){
+    var form = document.getElementById('student-form');
+    var btn = document.getElementById('submit-btn');
+
+    // Не даём отправить форму, если кнопка была разблокирована вручную через DevTools
+    form.addEventListener('submit', function(e){
+      var tokenInput = form.querySelector('input[name="smart-token"]');
+      if (!tokenInput || !tokenInput.value) {
+        e.preventDefault();
+        alert('Пожалуйста, пройдите проверку капчи');
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = 'Пройдите капчу';
+        }
+      }
+    });
+
+    // Страховка: если капча не загрузилась за 8 секунд — не блокируем пользователя навсегда
+    setTimeout(function(){
+      if (btn && btn.disabled) {
+        var tokenInput = form.querySelector('input[name="smart-token"]');
+        if (!tokenInput || !tokenInput.value) {
+          // Если капча так и не загрузилась — оставляем кнопку заблокированной,
+          // но показываем подсказку
+          console.warn('SmartCaptcha не загрузилась за 8 секунд');
+        }
+      }
+    }, 8000);
+  })();
+</script>
+
 {% endblock %}

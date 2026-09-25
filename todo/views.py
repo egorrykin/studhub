@@ -21,7 +21,7 @@ from .models import (
 )
 from .utils import (
     check_file_size, check_group_storage, check_groups_storage,
-    compress_image, safe_redirect,
+    compress_image, safe_redirect, get_client_ip, verify_smartcaptcha,
 )
 
 
@@ -880,7 +880,6 @@ class ClickerView(LoginRequiredMixin, TemplateView):
         my_profile, _ = ClickerProfile.objects.get_or_create(user=user)
         my_profile.apply_auto()
 
-        # Лидер группы пользователя
         top_group = None
         if user.group_id:
             top_group = (ClickerProfile.objects
@@ -891,7 +890,6 @@ class ClickerView(LoginRequiredMixin, TemplateView):
             if top_group and top_group.score <= 0:
                 top_group = None
 
-        # Рекорд сайта
         top_site = (ClickerProfile.objects
                     .select_related('user', 'user__group')
                     .filter(user__is_active=True)
@@ -900,7 +898,6 @@ class ClickerView(LoginRequiredMixin, TemplateView):
         if top_site and top_site.score <= 0:
             top_site = None
 
-        # Не дублируем, если один и тот же
         if top_site and top_group and top_site.pk == top_group.pk:
             top_site = None
 
@@ -963,11 +960,29 @@ class StudentCreateView(LoginRequiredMixin, View):
     def get(self, request):
         return render(request, 'todo/student_create.html', {
             'form': StudentCreateForm(),
+            'YANDEX_SMARTCAPTCHA_CLIENT_KEY': getattr(
+                __import__('django.conf', fromlist=['settings']).settings,
+                'YANDEX_SMARTCAPTCHA_CLIENT_KEY', ''
+            ),
         })
 
     def post(self, request):
         form = StudentCreateForm(request.POST)
         if form.is_valid():
+            # ─── Проверка Yandex SmartCaptcha ────────────────────
+            captcha_token = request.POST.get('smart-token', '')
+            ip = get_client_ip(request)
+
+            if not verify_smartcaptcha(captcha_token, ip):
+                form.add_error(None, 'Не пройдена проверка капчи. Попробуйте ещё раз.')
+                return render(request, 'todo/student_create.html', {
+                    'form': form,
+                    'YANDEX_SMARTCAPTCHA_CLIENT_KEY': getattr(
+                        __import__('django.conf', fromlist=['settings']).settings,
+                        'YANDEX_SMARTCAPTCHA_CLIENT_KEY', ''
+                    ),
+                })
+
             data = form.cleaned_data
             User.objects.create_user(
                 email=data['email'], password=data['password'],
@@ -976,7 +991,14 @@ class StudentCreateView(LoginRequiredMixin, View):
             )
             messages.success(request, f'Аккаунт создан: {data["email"]}')
             return redirect('students')
-        return render(request, 'todo/student_create.html', {'form': form})
+
+        return render(request, 'todo/student_create.html', {
+            'form': form,
+            'YANDEX_SMARTCAPTCHA_CLIENT_KEY': getattr(
+                __import__('django.conf', fromlist=['settings']).settings,
+                'YANDEX_SMARTCAPTCHA_CLIENT_KEY', ''
+            ),
+        })
 
 
 class StudentDeleteView(LoginRequiredMixin, View):

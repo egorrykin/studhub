@@ -228,3 +228,14 @@ if not DEBUG:
 
     # Создаём папку для логов
     (BASE_DIR / 'logs').mkdir(exist_ok=True)
+# ─── Yandex SmartCaptcha ──────────────────────────────────────
+# Клиентский ключ — публичный, можно хардкодить
+YANDEX_SMARTCAPTCHA_CLIENT_KEY = os.getenv(
+    'YANDEX_SMARTCAPTCHA_CLIENT_KEY',
+    'ysc1_fa3qhcDTFMjXBo0pcIpYpoIY2FHblSldcC90ub4e68fd29d3'
+)
+# Серверный ключ — СЕКРЕТНЫЙ, только через .env
+YANDEX_SMARTCAPTCHA_SERVER_KEY = os.getenv('YANDEX_SMARTCAPTCHA_SERVER_KEY', '')
+
+# Referrer-Policy, чтобы капча корректно работала через Nginx
+SECURE_REFERRER_POLICY = 'no-referrer-when-downgrade'

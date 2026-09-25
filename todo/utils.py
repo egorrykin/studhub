@@ -1,7 +1,9 @@
-"""Утилиты: безопасный редирект, лимиты файлов, сжатие картинок."""
+"""Утилиты: безопасный редирект, лимиты файлов, сжатие картинок, Yandex SmartCaptcha."""
 
 from io import BytesIO
 
+import requests
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.db.models import Sum
@@ -12,10 +14,14 @@ from django.utils.http import url_has_allowed_host_and_scheme
 
 FILE_SIZE_LIMIT = 50 * 1024 * 1024                 # 50 МБ на файл
 GROUP_STORAGE_LIMIT = 30 * 1024 * 1024 * 1024      # 30 ГБ на группу
-IMAGE_MAX_DIMENSION = 1920                         # макс. ширина/высота картинки
+IMAGE_MAX_DIMENSION = 1920
 IMAGE_JPEG_QUALITY = 85
 IMAGE_EXTS = ('jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif')
 
+
+# ═══════════════════════════════════════════════════════════════
+# Файлы и хранилище
+# ═══════════════════════════════════════════════════════════════
 
 def get_group_storage_used(group) -> int:
     """Суммарный размер всех файлов, привязанных к группе (в байтах)."""
@@ -76,9 +82,8 @@ def compress_image(uploaded_file):
         from PIL import Image, ImageOps
         uploaded_file.seek(0)
         img = Image.open(uploaded_file)
-        img = ImageOps.exif_transpose(img)   # учитываем поворот камеры
+        img = ImageOps.exif_transpose(img)
 
-        # прозрачность → PNG, иначе JPEG
         has_alpha = img.mode in ('RGBA', 'LA', 'P')
         if has_alpha:
             fmt, new_ext = 'PNG', 'png'
@@ -87,7 +92,6 @@ def compress_image(uploaded_file):
                 img = img.convert('RGB')
             fmt, new_ext = 'JPEG', 'jpg'
 
-        # уменьшение
         if img.width > IMAGE_MAX_DIMENSION or img.height > IMAGE_MAX_DIMENSION:
             img.thumbnail((IMAGE_MAX_DIMENSION, IMAGE_MAX_DIMENSION), Image.LANCZOS)
 
@@ -102,7 +106,6 @@ def compress_image(uploaded_file):
         new_name = f'{base}.{new_ext}'
         return ContentFile(data, name=new_name), len(data)
     except Exception:
-        # если что-то не так — отдаём оригинал
         try:
             uploaded_file.seek(0)
         except Exception:
@@ -119,3 +122,54 @@ def safe_redirect(request, fallback_name='schedule'):
     ):
         return redirect(referer)
     return redirect(reverse(fallback_name))
+
+
+# ═══════════════════════════════════════════════════════════════
+# Yandex SmartCaptcha
+# ═══════════════════════════════════════════════════════════════
+
+def get_client_ip(request) -> str:
+    """Возвращает реальный IP пользователя (учитывает прокси)."""
+    xff = request.META.get('HTTP_X_FORWARDED_FOR')
+    if xff:
+        return xff.split(',')[0].strip()
+    return request.META.get('REMOTE_ADDR', '') or ''
+
+
+def verify_smartcaptcha(token: str, ip: str = None) -> bool:
+    """
+    Проверяет токен Yandex SmartCaptcha на сервере.
+    Возвращает True, если капча пройдена.
+
+    Fail-open: при сетевой ошибке/таймауте возвращает True,
+    чтобы пользователь не оказался заблокирован из-за сбоя на стороне Yandex.
+    """
+    if not token:
+        return False
+
+    server_key = getattr(settings, 'YANDEX_SMARTCAPTCHA_SERVER_KEY', '')
+    if not server_key:
+        # Если ключ не настроен — не блокируем (для разработки)
+        return True
+
+    try:
+        r = requests.post(
+            'https://smartcaptcha.yandexcloud.net/validate',
+            data={
+                'secret': server_key,
+                'token': token,
+                'ip': ip or '',
+            },
+            timeout=5,
+        )
+
+        if r.status_code != 200:
+            # При ошибке сервиса — не блокируем
+            return True
+
+        data = r.json()
+        return data.get('status') == 'ok'
+
+    except Exception:
+        # При любой сетевой ошибке — не блокируем
+        return True

@@ -3,6 +3,7 @@ from django.contrib.auth.forms import AuthenticationForm
 from django.core.exceptions import ValidationError
 
 from .models import Lecture, Homework, Announcement, User, ImportantDay, Group, GroupTemplate
+from .utils import get_client_ip, verify_smartcaptcha
 
 
 class MultipleFileInput(forms.FileInput):
@@ -36,6 +37,16 @@ class EmailAuthenticationForm(AuthenticationForm):
         label='Пароль', strip=False,
         widget=forms.PasswordInput(attrs={'placeholder': '••••••••'}),
     )
+
+    def clean(self):
+        # Капча проверяется ДО аутентификации
+        token = self.data.get('smart-token', '')
+        ip = get_client_ip(self.request) if self.request else None
+        if not verify_smartcaptcha(token, ip):
+            raise forms.ValidationError(
+                'Не пройдена проверка капчи. Попробуйте ещё раз.'
+            )
+        return super().clean()
 
 
 class LectureForm(forms.ModelForm):

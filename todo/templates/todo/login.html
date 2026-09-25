@@ -1,5 +1,6 @@
 {% extends 'todo/base.html' %}
-{% block title %}Вход · STUDHUB{% endblock %}
+{% load static %}
+{% block title %}Вход · {{ site_name }}{% endblock %}
 {% block body %}
 <div class="login-wrap">
   <div class="login-box">
@@ -12,22 +13,68 @@
     </div>
     <h1>Вход</h1>
     <p class="sub">Используйте email и пароль, выданные старостой</p>
-    <form method="post">
+
+    <form method="post" id="login-form" autocomplete="off">
       {% csrf_token %}
+
       {% if form.non_field_errors %}
       <ul class="errorlist">{% for e in form.non_field_errors %}<li>{{ e }}</li>{% endfor %}</ul>
       {% endif %}
+
       <div class="field">
         <label for="{{ form.username.id_for_label }}">Email</label>
         {{ form.username }}
         {% if form.username.errors %}<ul class="errorlist">{% for e in form.username.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
       </div>
+
       <div class="field">
         <label for="{{ form.password.id_for_label }}">Пароль</label>
         {{ form.password }}
       </div>
-      <button type="submit" class="btn" style="width:100%">Войти</button>
+
+      {# ─── Yandex SmartCaptcha ─── #}
+      <div class="field">
+        <label>Подтвердите, что вы не робот</label>
+        <div
+                id="captcha-container"
+                class="smart-captcha"
+                data-sitekey="{{ YANDEX_SMARTCAPTCHA_CLIENT_KEY }}"
+                data-callback="onCaptchaSuccess"
+                style="height: 100px; margin-top: 8px;"
+        ></div>
+      </div>
+
+      <button type="submit" class="btn" id="submit-btn" style="width:100%" disabled>Пройдите капчу</button>
     </form>
   </div>
 </div>
+
+<script src="https://smartcaptcha.yandexcloud.net/captcha.js" defer></script>
+<script>
+  function onCaptchaSuccess(token) {
+    var btn = document.getElementById('submit-btn');
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Войти';
+    }
+  }
+
+  (function(){
+    var form = document.getElementById('login-form');
+    var btn = document.getElementById('submit-btn');
+
+    // Страховка: не даём отправить форму без токена
+    form.addEventListener('submit', function(e){
+      var tokenInput = form.querySelector('input[name="smart-token"]');
+      if (!tokenInput || !tokenInput.value) {
+        e.preventDefault();
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = 'Пройдите капчу';
+        }
+      }
+    });
+  })();
+</script>
+
 {% endblock %}
