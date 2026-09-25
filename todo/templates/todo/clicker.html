@@ -1,12 +1,47 @@
 {% extends 'todo/base.html' %}
-{% block title %}Симулятор другалька · РИБО-01-26{% endblock %}
+{% block title %}Симулятор другалька · {{ site_name }}{% endblock %}
 {% block content %}
-{% load static %}
 
 <div style="margin-bottom:24px">
   <h1>Симулятор другалька</h1>
   <p class="sub" style="margin-bottom:0">Тыкай — корми — расти. Битва за корону группы 👑</p>
 </div>
+
+{# ─── Лидеры: рекорд сайта + лидер группы ─── #}
+{% if top_site or top_group %}
+<div style="display:flex;flex-direction:column;gap:10px;margin-bottom:24px">
+
+  {% if top_site %}
+  <div class="site-record" style="margin-bottom:0;cursor:default">
+    <span class="trophy">🏆</span>
+    <span class="site-record-avatar">{{ top_site.stage.1 }}</span>
+    <div class="site-record-info">
+      <div class="site-record-name">{{ top_site.user.short_name }}</div>
+      <div class="site-record-meta">
+        <span class="site-record-group">
+          {% if top_site.user.group %}{{ top_site.user.group.name }}{% else %}Без группы{% endif %}
+        </span>
+        <span>{{ top_site.score }} очков · ур. {{ top_site.level }} · {{ top_site.stage.0 }}</span>
+      </div>
+    </div>
+    <span class="site-record-label">🏆 Рекорд сайта</span>
+  </div>
+  {% endif %}
+
+  {% if top_group %}
+  <a href="#leaderboard-group" class="top-player" style="margin-bottom:0">
+    <span class="crown">👑</span>
+    <span class="top-player-avatar">{{ top_group.stage.1 }}</span>
+    <div class="top-player-info">
+      <div class="top-player-name">{{ top_group.user.short_name }}</div>
+      <div class="top-player-score">{{ top_group.score }} очков · ур. {{ top_group.level }} · {{ top_group.stage.0 }}</div>
+    </div>
+    <span class="top-player-label">Лидер группы</span>
+  </a>
+  {% endif %}
+
+</div>
+{% endif %}
 
 <div class="clicker-page">
   <div class="clicker-main">
@@ -58,7 +93,7 @@
       </button>
     </div>
 
-    <div class="clicker-leaderboard">
+    <div class="clicker-leaderboard" id="leaderboard-group">
       <h3>Рейтинг группы · онлайн</h3>
       <ol id="leaderboard">
         <li><span class="lb-rank">—</span><span class="lb-name">Загрузка...</span></li>
@@ -125,12 +160,10 @@
       btnUpAuto.disabled = score < parseInt(costAuto.textContent, 10);
     }
 
-    // Клик по питомцу — мгновенно обновляем локально, потом синхронизация
     btnClick.addEventListener('click', async () => {
       score += parseInt(perClickEl.textContent.replace('+', ''), 10) || 1;
       scoreEl.textContent = score;
       updateShopButtons();
-
       try {
         const data = await api("{% url 'api_clicker_click' %}", 'POST');
         applyState(data);
@@ -151,11 +184,9 @@
       } catch (e) {}
     });
 
-    // Опрос состояния + лидерборда каждые 2 секунды
     async function pollState(){
       try {
         const s = await api("{% url 'api_clicker_state' %}");
-        // на сервере мог накопиться автоклик — берём его как истину
         lastServerScore = s.score;
         applyState(s);
       } catch (e) {}
@@ -186,7 +217,6 @@
       })[c]);
     }
 
-    // локальный автотик (визуальный) — очки растут каждый тик, пока не придёт с сервера
     setInterval(() => {
       const rate = parseInt(autoRateEl.textContent.replace('+', ''), 10) || 0;
       if (rate > 0) {

@@ -113,8 +113,6 @@ class ScheduleView(LoginRequiredMixin, ListView):
                 'total_students': 0,
                 'announcements': [],
                 'announcements_total': 0,
-                'top_clicker': None,
-                'site_record': None,
                 'no_group': group is None,
                 'subscription_days_left': None,
             })
@@ -198,21 +196,6 @@ class ScheduleView(LoginRequiredMixin, ListView):
 
         ann_qs = Announcement.objects.filter(group=group).prefetch_related('images')
 
-        top_clicker = (ClickerProfile.objects
-                       .select_related('user')
-                       .filter(user__group=group, user__is_active=True)
-                       .order_by('-score').first())
-
-        top_clicker_site = (ClickerProfile.objects
-                            .select_related('user', 'user__group')
-                            .filter(user__is_active=True)
-                            .order_by('-score').first())
-
-        site_record = None
-        if top_clicker_site and top_clicker_site.score > 0:
-            if not top_clicker or top_clicker_site.pk != top_clicker.pk:
-                site_record = top_clicker_site
-
         ctx.update({
             'days': days, 'active_day': active_day,
             'active_day_data': days[active_day],
@@ -225,8 +208,6 @@ class ScheduleView(LoginRequiredMixin, ListView):
             'total_students': total_students,
             'announcements': ann_qs.all()[:3],
             'announcements_total': ann_qs.count(),
-            'top_clicker': top_clicker,
-            'site_record': site_record,
             'no_group': False,
             'subscription_days_left': group.subscription_days_left,
         })
@@ -891,11 +872,43 @@ class ClickerView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
+        user = self.request.user
+
         for u in User.objects.filter(is_active=True):
             ClickerProfile.objects.get_or_create(user=u)
-        my_profile, _ = ClickerProfile.objects.get_or_create(user=self.request.user)
+
+        my_profile, _ = ClickerProfile.objects.get_or_create(user=user)
         my_profile.apply_auto()
-        ctx['profile'] = my_profile
+
+        # Лидер группы пользователя
+        top_group = None
+        if user.group_id:
+            top_group = (ClickerProfile.objects
+                         .select_related('user')
+                         .filter(user__group=user.group, user__is_active=True)
+                         .order_by('-score')
+                         .first())
+            if top_group and top_group.score <= 0:
+                top_group = None
+
+        # Рекорд сайта
+        top_site = (ClickerProfile.objects
+                    .select_related('user', 'user__group')
+                    .filter(user__is_active=True)
+                    .order_by('-score')
+                    .first())
+        if top_site and top_site.score <= 0:
+            top_site = None
+
+        # Не дублируем, если один и тот же
+        if top_site and top_group and top_site.pk == top_group.pk:
+            top_site = None
+
+        ctx.update({
+            'profile': my_profile,
+            'top_group': top_group,
+            'top_site': top_site,
+        })
         return ctx
 
 

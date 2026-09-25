@@ -54,37 +54,6 @@
   {% endif %}
 </div>
 
-{# ─── Рекорд сайта (все группы) ─── #}
-{% if site_record %}
-<a href="{% url 'clicker' %}" class="site-record">
-  <span class="trophy">🏆</span>
-  <span class="site-record-avatar">{{ site_record.stage.1 }}</span>
-  <div class="site-record-info">
-    <div class="site-record-name">{{ site_record.user.short_name }}</div>
-    <div class="site-record-meta">
-      <span class="site-record-group">
-        {% if site_record.user.group %}{{ site_record.user.group.name }}{% else %}Без группы{% endif %}
-      </span>
-      <span>{{ site_record.score }} очков · ур. {{ site_record.level }} · {{ site_record.stage.0 }}</span>
-    </div>
-  </div>
-  <span class="site-record-label">🏆 Рекорд сайта</span>
-</a>
-{% endif %}
-
-{# ─── Лидер группы ─── #}
-{% if top_clicker and top_clicker.score > 0 %}
-<a href="{% url 'clicker' %}" class="top-player">
-  <span class="crown">👑</span>
-  <span class="top-player-avatar">{{ top_clicker.stage.1 }}</span>
-  <div class="top-player-info">
-    <div class="top-player-name">{{ top_clicker.user.short_name }}</div>
-    <div class="top-player-score">{{ top_clicker.score }} очков · ур. {{ top_clicker.level }} · {{ top_clicker.stage.0 }}</div>
-  </div>
-  <span class="top-player-label">Лидер группы</span>
-</a>
-{% endif %}
-
 {% if announcements %}
 <div class="announcements-header">
   <span class="announcements-label">Важное от старосты</span>
