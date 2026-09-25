@@ -2,7 +2,9 @@ from datetime import date, timedelta
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.cache import cache
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db.models import Prefetch, Count
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.views import View
@@ -71,13 +73,37 @@ class ScheduleView(LoginRequiredMixin, ListView):
     context_object_name = 'lectures'
 
     def get_queryset(self):
-        group = self.request.user.group
+        user = self.request.user
+        group = user.group
         if not group:
             return Lecture.objects.none()
-        return Lecture.objects.filter(groups=group).prefetch_related(
-            'homeworks__attachments', 'materials',
-            'attendances__student', 'groups',
-        )
+
+        # Диапазон: текущая неделя ± 8 недель. Не тянем весь архив.
+        try:
+            week_offset = int(self.request.GET.get('week', 0))
+        except (ValueError, TypeError):
+            week_offset = 0
+        week_offset = max(-52, min(52, week_offset))
+        today = date.today()
+        start = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
+        end = start + timedelta(days=6)
+
+        # Предзагружаем только нужное: ДЗ+файлы, материалы, отметки
+        return (Lecture.objects
+        .filter(groups=group, date__gte=start, date__lte=end)
+        .select_related('created_by')
+        .prefetch_related(
+            Prefetch('groups', queryset=Group.objects.only('id', 'name')),
+            'homeworks__attachments',
+            'materials',
+            Prefetch(
+                'attendances',
+                queryset=Attendance.objects.select_related('student').only(
+                    'id', 'lecture_id', 'student_id',
+                    'student__id', 'student__full_name', 'student__email',
+                ),
+            ),
+        ))
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -129,14 +155,24 @@ class ScheduleView(LoginRequiredMixin, ListView):
         end_of_week = start_of_week + timedelta(days=6)
 
         lectures = list(self.get_queryset())
-        total_students = User.objects.filter(is_active=True, group=group).count()
+
+        # Кешируем количество студентов в группе на 5 минут
+        cache_key = f'group_size:{group.pk}'
+        total_students = cache.get(cache_key)
+        if total_students is None:
+            total_students = User.objects.filter(
+                is_active=True, group=group
+            ).count()
+            cache.set(cache_key, total_students, 300)
 
         lec_map = {(l.date, l.slot): l for l in lectures}
 
-        imp_qs = ImportantDay.objects.filter(
-            group=group, date__gte=start_of_week, date__lte=end_of_week,
-        )
-        imp_map = {i.date: i for i in imp_qs}
+        # ImportantDays — 1 запрос
+        imp_map = {
+            i.date: i for i in ImportantDay.objects.filter(
+                group=group, date__gte=start_of_week, date__lte=end_of_week,
+            )
+        }
 
         days = []
         for i in range(7):
@@ -152,6 +188,7 @@ class ScheduleView(LoginRequiredMixin, ListView):
                     lec.attendance_percent = round(
                         lec.attendance_count * 100 / total_students
                     ) if total_students else 0
+                    # Не тянем полный объект User в attendees — уже select_related
                     lec.attendees = [
                         {'student': a.student, 'is_me': a.student_id == user.pk}
                         for a in all_atts
@@ -194,7 +231,18 @@ class ScheduleView(LoginRequiredMixin, ListView):
             week_label = (f"{start_of_week.day} {MONTH_GEN[start_of_week.month - 1]} — "
                           f"{end_of_week.day} {MONTH_GEN[end_of_week.month - 1]}")
 
-        ann_qs = Announcement.objects.filter(group=group).prefetch_related('images')
+        # Объявления — только id/title/text/created_at + картинки одной пачкой
+        ann_qs = (Announcement.objects
+                  .filter(group=group)
+                  .only('id', 'title', 'text', 'is_pinned', 'created_at', 'author__id',
+                        'author__full_name', 'author__email')
+                  .select_related('author')
+                  .prefetch_related('images'))
+        ann_list = list(ann_qs[:3])
+        ann_total = cache.get(f'ann_total:{group.pk}')
+        if ann_total is None:
+            ann_total = Announcement.objects.filter(group=group).count()
+            cache.set(f'ann_total:{group.pk}', ann_total, 120)
 
         ctx.update({
             'days': days, 'active_day': active_day,
@@ -206,8 +254,8 @@ class ScheduleView(LoginRequiredMixin, ListView):
             'today': today,
             'total_week': sum(d['lectures_count'] for d in days),
             'total_students': total_students,
-            'announcements': ann_qs.all()[:3],
-            'announcements_total': ann_qs.count(),
+            'announcements': ann_list,
+            'announcements_total': ann_total,
             'no_group': False,
             'subscription_days_left': group.subscription_days_left,
         })
@@ -742,7 +790,10 @@ class AnnouncementListView(LoginRequiredMixin, ListView):
             return Announcement.objects.none()
         if not self.request.user.is_superuser and not group.is_access_open:
             return Announcement.objects.none()
-        return Announcement.objects.filter(group=group).prefetch_related('images')
+        return (Announcement.objects
+                .filter(group=group)
+                .select_related('author')
+                .prefetch_related('images'))
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -874,29 +925,37 @@ class ClickerView(LoginRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         user = self.request.user
 
-        for u in User.objects.filter(is_active=True):
-            ClickerProfile.objects.get_or_create(user=u)
+        # ВАЖНО: убрали цикл по всем пользователям (был N+1).
+        # Профили создаются автоматически через signal post_save User.
+        # Если у пользователя нет профиля — создаём только его.
 
         my_profile, _ = ClickerProfile.objects.get_or_create(user=user)
         my_profile.apply_auto()
 
+        # Лидер группы пользователя — 1 запрос
         top_group = None
         if user.group_id:
             top_group = (ClickerProfile.objects
                          .select_related('user')
+                         .only('id', 'score', 'level', 'user_id', 'user__id',
+                               'user__full_name', 'user__email', 'user__group_id')
                          .filter(user__group=user.group, user__is_active=True)
                          .order_by('-score')
                          .first())
             if top_group and top_group.score <= 0:
                 top_group = None
 
-        top_site = (ClickerProfile.objects
-                    .select_related('user', 'user__group')
-                    .filter(user__is_active=True)
-                    .order_by('-score')
-                    .first())
-        if top_site and top_site.score <= 0:
-            top_site = None
+        # Рекорд сайта — 1 запрос, но кешируем на 30 секунд
+        top_site = cache.get('clicker_top_site')
+        if top_site is None:
+            top_site = (ClickerProfile.objects
+                        .select_related('user', 'user__group')
+                        .filter(user__is_active=True)
+                        .order_by('-score')
+                        .first())
+            if top_site and top_site.score <= 0:
+                top_site = None
+            cache.set('clicker_top_site', top_site, 30)
 
         if top_site and top_group and top_site.pk == top_group.pk:
             top_site = None
@@ -934,10 +993,11 @@ class StudentsView(LoginRequiredMixin, TemplateView):
         students = list(
             User.objects.filter(is_active=True, group=group)
             .select_related('student_profile')
+            .prefetch_related('respects__author')
             .order_by('full_name', 'email')
         )
         for s in students:
-            s.respects_list = list(s.respects.select_related('author').all())
+            s.respects_list = list(s.respects.all())
             s.respect_total = sum(r.value for r in s.respects_list)
 
         students.sort(key=lambda s: s.respect_total, reverse=True)
@@ -958,18 +1018,19 @@ class StudentCreateView(LoginRequiredMixin, View):
         return super().dispatch(request, *args, **kwargs)
 
     def get(self, request):
+        from django.conf import settings
         return render(request, 'todo/student_create.html', {
             'form': StudentCreateForm(),
             'YANDEX_SMARTCAPTCHA_CLIENT_KEY': getattr(
-                __import__('django.conf', fromlist=['settings']).settings,
-                'YANDEX_SMARTCAPTCHA_CLIENT_KEY', ''
+                settings, 'YANDEX_SMARTCAPTCHA_CLIENT_KEY', ''
             ),
         })
 
     def post(self, request):
+        from django.conf import settings
         form = StudentCreateForm(request.POST)
         if form.is_valid():
-            # ─── Проверка Yandex SmartCaptcha ────────────────────
+            # Проверка SmartCaptcha
             captcha_token = request.POST.get('smart-token', '')
             ip = get_client_ip(request)
 
@@ -978,8 +1039,7 @@ class StudentCreateView(LoginRequiredMixin, View):
                 return render(request, 'todo/student_create.html', {
                     'form': form,
                     'YANDEX_SMARTCAPTCHA_CLIENT_KEY': getattr(
-                        __import__('django.conf', fromlist=['settings']).settings,
-                        'YANDEX_SMARTCAPTCHA_CLIENT_KEY', ''
+                        settings, 'YANDEX_SMARTCAPTCHA_CLIENT_KEY', ''
                     ),
                 })
 
@@ -995,8 +1055,7 @@ class StudentCreateView(LoginRequiredMixin, View):
         return render(request, 'todo/student_create.html', {
             'form': form,
             'YANDEX_SMARTCAPTCHA_CLIENT_KEY': getattr(
-                __import__('django.conf', fromlist=['settings']).settings,
-                'YANDEX_SMARTCAPTCHA_CLIENT_KEY', ''
+                settings, 'YANDEX_SMARTCAPTCHA_CLIENT_KEY', ''
             ),
         })
 

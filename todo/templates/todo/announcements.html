@@ -1,5 +1,5 @@
 {% extends 'todo/base.html' %}
-{% block title %}Все объявления · РИБО-01-26{% endblock %}
+{% block title %}Все объявления · {{ site_name }}{% endblock %}
 {% block content %}
 
 <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;margin-bottom:28px">
@@ -32,7 +32,8 @@
         {% for img in a.images.all %}
         <span class="ann-img">
                   <a href="{{ img.image.url }}" target="_blank" rel="noopener">
-                    <img src="{{ img.image.url }}" alt="">
+                    <img src="{{ img.image.url }}" alt=""
+                         loading="lazy" decoding="async" width="400" height="300">
                   </a>
                   {% if can_edit %}
                     <form method="post" action="{% url 'announcement_image_delete' img.pk %}" class="ann-img-del">

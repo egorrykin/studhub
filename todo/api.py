@@ -1,3 +1,4 @@
+from django.core.cache import cache
 from django.db.models import Sum
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -17,6 +18,8 @@ def _group_leaderboard(user, limit=50):
     return list(
         ClickerProfile.objects
         .select_related('user')
+        .only('id', 'score', 'level', 'user_id',
+              'user__id', 'user__full_name', 'user__email')
         .filter(user__is_active=True, user__group_id=user.group_id)
         .order_by('-score')[:limit]
     )
@@ -48,7 +51,13 @@ def clicker_click(request):
     p.score += p.per_click
     p.total_clicks += 1
     p._update_level()
-    p.save()
+    # Обновляем только нужные поля — быстрее, чем save() всего объекта
+    ClickerProfile.objects.filter(pk=p.pk).update(
+        score=p.score,
+        total_clicks=p.total_clicks,
+        level=p.level,
+        last_tick=p.last_tick,
+    )
     return Response({
         'ok': True,
         'score': p.score,
@@ -69,7 +78,9 @@ def clicker_upgrade_click(request):
         return Response({'ok': False, 'error': 'Недостаточно очков'}, status=400)
     p.score -= cost
     p.per_click += 1
-    p.save()
+    ClickerProfile.objects.filter(pk=p.pk).update(
+        score=p.score, per_click=p.per_click, last_tick=p.last_tick,
+    )
     return Response({
         'ok': True,
         'score': p.score,
@@ -88,7 +99,9 @@ def clicker_upgrade_auto(request):
         return Response({'ok': False, 'error': 'Недостаточно очков'}, status=400)
     p.score -= cost
     p.auto_per_sec += 1
-    p.save()
+    ClickerProfile.objects.filter(pk=p.pk).update(
+        score=p.score, auto_per_sec=p.auto_per_sec, last_tick=p.last_tick,
+    )
     return Response({
         'ok': True,
         'score': p.score,
@@ -100,13 +113,20 @@ def clicker_upgrade_auto(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def clicker_leaderboard(request):
-    profiles = _group_leaderboard(request.user)
+    user = request.user
+    # Кеш на 5 секунд — за это время данные почти не меняются
+    cache_key = f'lb:{user.group_id}:{user.pk}'
+    cached = cache.get(cache_key)
+    if cached:
+        return Response(cached)
+
+    profiles = _group_leaderboard(user)
     my_rank = None
     for i, p in enumerate(profiles, 1):
-        if p.user_id == request.user.pk:
+        if p.user_id == user.pk:
             my_rank = i
             break
-    return Response({
+    data = {
         'leaderboard': [
             {
                 'rank': i,
@@ -115,12 +135,66 @@ def clicker_leaderboard(request):
                 'score': p.score,
                 'level': p.level,
                 'stage_emoji': p.stage[1],
-                'is_me': p.user_id == request.user.pk,
+                'is_me': p.user_id == user.pk,
             }
             for i, p in enumerate(profiles, 1)
         ],
         'my_rank': my_rank,
-    })
+    }
+    cache.set(cache_key, data, 5)
+    return Response(data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def clicker_state_and_leaderboard(request):
+    """Объединённый эндпоинт: отдаёт и state, и leaderboard одним запросом.
+    Сокращает число HTTP-запросов с 2 до 1."""
+    user = request.user
+
+    # State
+    p = _profile(user)
+    p.apply_auto()
+    state = {
+        'score': p.score,
+        'per_click': p.per_click,
+        'auto_per_sec': p.auto_per_sec,
+        'level': p.level,
+        'stage_name': p.stage[0],
+        'stage_emoji': p.stage[1],
+        'per_click_cost': p.per_click_cost,
+        'auto_cost': p.auto_cost,
+        'total_clicks': p.total_clicks,
+    }
+
+    # Leaderboard (кеш 5 сек)
+    cache_key = f'lb:{user.group_id}:{user.pk}'
+    lb = cache.get(cache_key)
+    if not lb:
+        profiles = _group_leaderboard(user)
+        my_rank = None
+        for i, pr in enumerate(profiles, 1):
+            if pr.user_id == user.pk:
+                my_rank = i
+                break
+        lb = {
+            'leaderboard': [
+                {
+                    'rank': i,
+                    'name': pr.user.short_name,
+                    'full_name': pr.user.full_name or pr.user.email,
+                    'score': pr.score,
+                    'level': pr.level,
+                    'stage_emoji': pr.stage[1],
+                    'is_me': pr.user_id == user.pk,
+                }
+                for i, pr in enumerate(profiles, 1)
+            ],
+            'my_rank': my_rank,
+        }
+        cache.set(cache_key, lb, 5)
+
+    return Response({**state, **lb})
 
 
 @api_view(['GET'])

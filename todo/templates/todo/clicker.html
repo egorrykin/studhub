@@ -7,10 +7,8 @@
   <p class="sub" style="margin-bottom:0">Тыкай — корми — расти. Битва за корону группы 👑</p>
 </div>
 
-{# ─── Лидеры: рекорд сайта + лидер группы ─── #}
 {% if top_site or top_group %}
 <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:24px">
-
   {% if top_site %}
   <div class="site-record" style="margin-bottom:0;cursor:default">
     <span class="trophy">🏆</span>
@@ -39,7 +37,6 @@
     <span class="top-player-label">Лидер группы</span>
   </a>
   {% endif %}
-
 </div>
 {% endif %}
 
@@ -65,7 +62,6 @@
     <div class="clicker-hint">
       Всего кликов: <b id="total-clicks">{{ profile.total_clicks }}</b> ·
       Место в группе: <b id="my-rank">— / —</b>
-      <span id="live-dot" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#c6ff00;margin-left:8px;box-shadow:0 0 8px #c6ff00;vertical-align:middle"></span>
     </div>
   </div>
 
@@ -94,7 +90,7 @@
     </div>
 
     <div class="clicker-leaderboard" id="leaderboard-group">
-      <h3>Рейтинг группы · онлайн</h3>
+      <h3>Рейтинг группы</h3>
       <ol id="leaderboard">
         <li><span class="lb-rank">—</span><span class="lb-name">Загрузка...</span></li>
       </ol>
@@ -124,13 +120,22 @@
     const csrf = document.querySelector('[name=csrfmiddlewaretoken]').value;
 
     let score = {{ profile.score }};
-    let lastServerScore = score;
 
-    async function api(url, method){
-      const r = await fetch(url, {
+    // Пакетная отправка кликов: копим и шлём раз в 500 мс.
+    // Это СИЛЬНО снижает нагрузку на сервер — вместо 20 запросов/сек шлём 2.
+    let pendingClicks = 0;
+    let flushTimer = null;
+
+    async function api(url, method, body){
+      const opts = {
         method: method || 'GET',
         headers: {'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'},
-      });
+      };
+      if (body) {
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(body);
+      }
+      const r = await fetch(url, opts);
       const data = await r.json();
       if (!r.ok) throw data;
       return data;
@@ -160,18 +165,32 @@
       btnUpAuto.disabled = score < parseInt(costAuto.textContent, 10);
     }
 
-    btnClick.addEventListener('click', async () => {
-      score += parseInt(perClickEl.textContent.replace('+', ''), 10) || 1;
+    async function flushClicks(){
+      if (pendingClicks <= 0) return;
+      const count = pendingClicks;
+      pendingClicks = 0;
+      try {
+        const data = await api("{% url 'api_clicker_click' %}", 'POST', {count: count});
+        applyState(data);
+      } catch(e){}
+    }
+
+    btnClick.addEventListener('click', () => {
+      // Локально сразу прибавляем — пользователь видит мгновенный отклик
+      const perClick = parseInt(perClickEl.textContent.replace('+', ''), 10) || 1;
+      score += perClick;
       scoreEl.textContent = score;
       updateShopButtons();
-      try {
-        const data = await api("{% url 'api_clicker_click' %}", 'POST');
-        applyState(data);
-      } catch (e) {}
+
+      pendingClicks += 1;
+      if (!flushTimer) {
+        flushTimer = setTimeout(() => { flushTimer = null; flushClicks(); }, 500);
+      }
     });
 
     btnUpClick.addEventListener('click', async () => {
       try {
+        await flushClicks();  // сначала отправим накопленные клики
         const data = await api("{% url 'api_upgrade_click' %}", 'POST');
         applyState(data);
       } catch (e) {}
@@ -179,22 +198,17 @@
 
     btnUpAuto.addEventListener('click', async () => {
       try {
+        await flushClicks();
         const data = await api("{% url 'api_upgrade_auto' %}", 'POST');
         applyState(data);
       } catch (e) {}
     });
 
-    async function pollState(){
+    // Объединённый polling: state + leaderboard одним запросом раз в 7 секунд
+    async function poll(){
       try {
-        const s = await api("{% url 'api_clicker_state' %}");
-        lastServerScore = s.score;
-        applyState(s);
-      } catch (e) {}
-    }
-
-    async function pollLeaderboard(){
-      try {
-        const data = await api("{% url 'api_leaderboard' %}");
+        const data = await api("{% url 'api_state_lb' %}");
+        applyState(data);
         const lb = data.leaderboard || [];
         lbEl.innerHTML = lb.map(p => {
           const cls = [];
@@ -217,6 +231,7 @@
       })[c]);
     }
 
+    // Локальный автотик — без запросов к серверу
     setInterval(() => {
       const rate = parseInt(autoRateEl.textContent.replace('+', ''), 10) || 0;
       if (rate > 0) {
@@ -226,10 +241,9 @@
       }
     }, 1000);
 
-    setInterval(pollState, 3000);
-    setInterval(pollLeaderboard, 4000);
-    pollState();
-    pollLeaderboard();
+    // Polling раз в 7 секунд (было 3-4)
+    setInterval(poll, 7000);
+    poll();
   })();
 </script>
 

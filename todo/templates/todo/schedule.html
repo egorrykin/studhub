@@ -79,7 +79,8 @@
         {% for img in a.images.all %}
         <span class="ann-img">
                 <a href="{{ img.image.url }}" target="_blank" rel="noopener">
-                  <img src="{{ img.image.url }}" alt="">
+                  <img src="{{ img.image.url }}" alt=""
+                       loading="lazy" decoding="async" width="400" height="300">
                 </a>
                 {% if can_edit %}
                   <form method="post" action="{% url 'announcement_image_delete' img.pk %}" class="ann-img-del">
@@ -251,7 +252,8 @@
       {% if m.is_image %}
       <span class="attachment-image">
                     <a href="{{ m.file.url }}" target="_blank" rel="noopener">
-                      <img src="{{ m.file.url }}" alt="{{ m.title }}">
+                      <img src="{{ m.file.url }}" alt="{{ m.title }}"
+                           loading="lazy" decoding="async" width="200" height="150">
                     </a>
                     {% if can_edit %}
                       <form method="post" action="{% url 'material_delete' m.pk %}" class="attachment-image-del">
@@ -294,7 +296,8 @@
       {% if a.is_image %}
       <span class="attachment-image">
                     <a href="{{ a.file.url }}" target="_blank" rel="noopener">
-                      <img src="{{ a.file.url }}" alt="{{ a.filename }}">
+                      <img src="{{ a.file.url }}" alt="{{ a.filename }}"
+                           loading="lazy" decoding="async" width="200" height="150">
                     </a>
                     {% if can_edit %}
                       <form method="post" action="{% url 'attachment_delete' a.pk %}" class="attachment-image-del">
