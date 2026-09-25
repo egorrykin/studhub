@@ -337,13 +337,7 @@
           display:grid;grid-template-columns:repeat(7,1fr);gap:8px;
           margin-bottom:32px;
         }
-        @media (max-width:720px){
-          .days-strip{gap:5px}
-          .day-card{padding:10px 4px}
-          .day-card .day-name{font-size:10px}
-          .day-card .day-num{font-size:18px}
-          .day-card .day-month{font-size:9.5px}
-        }
+
         .day-card{
           position:relative;
           display:flex;flex-direction:column;align-items:center;gap:3px;
@@ -414,6 +408,36 @@
         .day-card.important.active .day-name,
         .day-card.important.active .day-month{color:rgba(255,255,255,.75)}
         .day-card.important.active .day-num{color:#fff}
+
+        /* ─── Мобильные: кружок с количеством пар перемещаем ПОД дату ─── */
+        @media (max-width:720px){
+          .days-strip{gap:5px}
+          .day-card{
+            padding: 12px 4px 22px 4px;
+          }
+          .day-card .day-name{font-size:10px}
+          .day-card .day-num{font-size:18px}
+          .day-card .day-month{font-size:9.5px}
+
+          .day-card .day-count{
+            top: auto;
+            right: auto;
+            bottom: 5px;
+            left: 50%;
+            transform: translateX(-50%);
+            min-width: 18px;
+            height: 18px;
+            padding: 0 5px;
+            font-size: 10px;
+          }
+
+          /* Точка «сегодня» уходит чуть ниже, чтобы не пересечься с кружком */
+          .day-card.today::after{
+            bottom: 2px;
+            width: 3px;
+            height: 3px;
+          }
+        }
 
         .important-banner{
           display:flex;align-items:center;gap:16px;
@@ -1061,108 +1085,84 @@
           object-fit:contain;
           user-select:none;-webkit-user-drag:none;
         }
+
         /* ═══════════════ АВТОЗАПОЛНЕНИЕ (все браузеры) ═══════════════ */
 
-/*
- * Универсальный набор правил для стилизации полей, заполненных
- * браузером или менеджером паролей.
- *
- * Покрывает:
- *   • Chrome, Edge, Opera, Яндекс.Браузер, Brave, Vivaldi — WebKit/Blink движок, префикс -webkit-
- *   • Safari — WebKit движок, префикс -webkit-
- *   • Firefox — стандартный псевдокласс :autofill (с версии 86) и -moz-
- *   • Старые версии Edge (EdgeHTML) — -ms-
- */
+        /* ─── 1. WebKit / Blink (Chrome, Edge, Opera, Yandex, Safari, Brave, Vivaldi) ─── */
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover,
+        input:-webkit-autofill:focus,
+        input:-webkit-autofill:active,
+        textarea:-webkit-autofill,
+        textarea:-webkit-autofill:hover,
+        textarea:-webkit-autofill:focus,
+        textarea:-webkit-autofill:active,
+        select:-webkit-autofill,
+        select:-webkit-autofill:hover,
+        select:-webkit-autofill:focus,
+        select:-webkit-autofill:active {
+          -webkit-box-shadow: 0 0 0 1000px #0d0d0d inset !important;
+          -webkit-text-fill-color: var(--text) !important;
+          caret-color: var(--text) !important;
+          border: 1px solid var(--border) !important;
+          border-radius: 12px !important;
+          transition: background-color 5000s ease-in-out 0s, border-color .18s var(--ease) !important;
+        }
 
-/* ─── 1. WebKit / Blink (Chrome, Edge, Opera, Yandex, Safari, Brave, Vivaldi) ─── */
+        input:-webkit-autofill:focus,
+        textarea:-webkit-autofill:focus,
+        select:-webkit-autofill:focus {
+          -webkit-box-shadow:
+            0 0 0 1000px #0d0d0d inset,
+            0 0 0 4px rgba(198,255,0,.12) !important;
+          border-color: var(--lime) !important;
+          outline: none !important;
+        }
 
-input:-webkit-autofill,
-input:-webkit-autofill:hover,
-input:-webkit-autofill:focus,
-input:-webkit-autofill:active,
-textarea:-webkit-autofill,
-textarea:-webkit-autofill:hover,
-textarea:-webkit-autofill:focus,
-textarea:-webkit-autofill:active,
-select:-webkit-autofill,
-select:-webkit-autofill:hover,
-select:-webkit-autofill:focus,
-select:-webkit-autofill:active {
-  /* Перекрываем светлый фон автозаполнения через огромный внутренний box-shadow.
-     Браузеры WebKit не дают изменить background-color напрямую, поэтому используем этот трюк. */
-  -webkit-box-shadow: 0 0 0 1000px #0d0d0d inset !important;
+        /* ─── 2. Firefox (86+) — стандартный псевдокласс :autofill ─── */
+        input:autofill,
+        input:autofill:hover,
+        input:autofill:focus,
+        input:autofill:active,
+        textarea:autofill,
+        textarea:autofill:hover,
+        textarea:autofill:focus,
+        select:autofill,
+        select:autofill:hover,
+        select:autofill:focus {
+          background-color: #0d0d0d !important;
+          color: var(--text) !important;
+          caret-color: var(--text) !important;
+          border: 1px solid var(--border) !important;
+          border-radius: 12px !important;
+          filter: none !important;
+        }
 
-  /* Цвет текста — только через -webkit-text-fill-color */
-  -webkit-text-fill-color: var(--text) !important;
-  caret-color: var(--text) !important;
+        input:autofill:focus,
+        textarea:autofill:focus,
+        select:autofill:focus {
+          border-color: var(--lime) !important;
+          box-shadow: 0 0 0 4px rgba(198,255,0,.12) !important;
+          outline: none !important;
+        }
 
-  /* Возвращаем рамку и скругление, которые браузер иногда сбрасывает */
-  border: 1px solid var(--border) !important;
-  border-radius: 12px !important;
+        /* ─── 3. Старые версии Edge (EdgeHTML) и IE ─── */
+        input:-ms-autofill,
+        textarea:-ms-autofill,
+        select:-ms-autofill {
+          background-color: #0d0d0d !important;
+          color: var(--text) !important;
+          border: 1px solid var(--border) !important;
+        }
 
-  /* Долгий transition предотвращает мигание светлым фоном при подстановке */
-  transition: background-color 5000s ease-in-out 0s, border-color .18s var(--ease) !important;
-}
-
-/* Фокус у автозаполненного поля — оставляем лаймовую подсветку */
-input:-webkit-autofill:focus,
-textarea:-webkit-autofill:focus,
-select:-webkit-autofill:focus {
-  -webkit-box-shadow:
-    0 0 0 1000px #0d0d0d inset,
-    0 0 0 4px rgba(198,255,0,.12) !important;
-  border-color: var(--lime) !important;
-  outline: none !important;
-}
-
-/* ─── 2. Firefox (86+) — стандартный псевдокласс :autofill ─── */
-
-input:autofill,
-input:autofill:hover,
-input:autofill:focus,
-input:autofill:active,
-textarea:autofill,
-textarea:autofill:hover,
-textarea:autofill:focus,
-select:autofill,
-select:autofill:hover,
-select:autofill:focus {
-  background-color: #0d0d0d !important;
-  color: var(--text) !important;
-  caret-color: var(--text) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: 12px !important;
-  /* Отключаем возможные фильтры, которые Firefox может накладывать */
-  filter: none !important;
-}
-
-input:autofill:focus,
-textarea:autofill:focus,
-select:autofill:focus {
-  border-color: var(--lime) !important;
-  box-shadow: 0 0 0 4px rgba(198,255,0,.12) !important;
-  outline: none !important;
-}
-
-/* ─── 3. Старые версии Edge (EdgeHTML) и IE — на всякий случай ─── */
-
-input:-ms-autofill,
-textarea:-ms-autofill,
-select:-ms-autofill {
-  background-color: #0d0d0d !important;
-  color: var(--text) !important;
-  border: 1px solid var(--border) !important;
-}
-
-/* ─── 4. Страховка для Firefox: -moz-autofill (на случай старых версий) ─── */
-
-input:-moz-autofill,
-textarea:-moz-autofill,
-select:-moz-autofill {
-  background-color: #0d0d0d !important;
-  color: var(--text) !important;
-  border: 1px solid var(--border) !important;
-}
+        /* ─── 4. Страховка для старых Firefox ─── */
+        input:-moz-autofill,
+        textarea:-moz-autofill,
+        select:-moz-autofill {
+          background-color: #0d0d0d !important;
+          color: var(--text) !important;
+          border: 1px solid var(--border) !important;
+        }
     </style>
 </head>
 <body>
