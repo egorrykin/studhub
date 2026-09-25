@@ -62,6 +62,7 @@
     <div class="clicker-hint">
       Всего кликов: <b id="total-clicks">{{ profile.total_clicks }}</b> ·
       Место в группе: <b id="my-rank">— / —</b>
+      <span id="pending-hint" style="display:none;color:var(--lime);margin-left:6px"></span>
     </div>
   </div>
 
@@ -105,6 +106,7 @@
     const autoRateEl = document.getElementById('auto-rate');
     const totalClicksEl = document.getElementById('total-clicks');
     const myRankEl = document.getElementById('my-rank');
+    const pendingHint = document.getElementById('pending-hint');
     const emojiEl = document.getElementById('friend-emoji');
     const nameEl = document.getElementById('friend-name');
     const levelEl = document.getElementById('friend-level');
@@ -119,12 +121,18 @@
 
     const csrf = document.querySelector('[name=csrfmiddlewaretoken]').value;
 
+    // ─── Локальный стейт ──────────────────────────────────────
+    // score — то, что показываем пользователю (локально + сервер).
+    // serverScore — последнее подтверждённое значение с сервера.
+    // pendingClicks — сколько кликов ещё не отправлено на сервер.
     let score = {{ profile.score }};
-
-    // Пакетная отправка кликов: копим и шлём раз в 500 мс.
-    // Это СИЛЬНО снижает нагрузку на сервер — вместо 20 запросов/сек шлём 2.
+    let serverScore = score;
     let pendingClicks = 0;
+    let isFlushing = false;
     let flushTimer = null;
+
+    const FLUSH_INTERVAL_MS = 400;   // как часто отправляем батч
+    const POLL_INTERVAL_MS = 10000;  // как часто запрашиваем state+leaderboard
 
     async function api(url, method, body){
       const opts = {
@@ -141,8 +149,41 @@
       return data;
     }
 
+    function getPerClick(){
+      return parseInt(perClickEl.textContent.replace('+', ''), 10) || 1;
+    }
+
+    function getAutoRate(){
+      return parseInt(autoRateEl.textContent.replace('+', ''), 10) || 0;
+    }
+
+    function updateScoreDisplay(){
+      // Показываем серверный score + локальные неотправленные клики
+      scoreEl.textContent = serverScore + pendingClicks * getPerClick();
+    }
+
+    function updatePendingHint(){
+      if (pendingClicks > 0) {
+        pendingHint.textContent = '(+' + pendingClicks + ' в очереди)';
+        pendingHint.style.display = 'inline';
+      } else {
+        pendingHint.style.display = 'none';
+      }
+    }
+
+    function updateShopButtons(){
+      const current = serverScore + pendingClicks * getPerClick();
+      btnUpClick.disabled = current < parseInt(costPerClick.textContent, 10);
+      btnUpAuto.disabled = current < parseInt(costAuto.textContent, 10);
+    }
+
     function applyState(s){
-      if (s.score !== undefined) { score = s.score; scoreEl.textContent = score; }
+      if (s.score !== undefined) {
+        serverScore = s.score;
+        // Если есть pending клики — они ещё в пути, показываем их сверху
+        score = serverScore + pendingClicks * getPerClick();
+        scoreEl.textContent = score;
+      }
       if (s.per_click !== undefined) {
         perClickEl.textContent = '+' + s.per_click;
         shopPerClick.textContent = '+' + s.per_click;
@@ -157,58 +198,95 @@
       if (s.total_clicks !== undefined) totalClicksEl.textContent = s.total_clicks;
       if (s.per_click_cost !== undefined) costPerClick.textContent = s.per_click_cost;
       if (s.auto_cost !== undefined) costAuto.textContent = s.auto_cost;
+      updatePendingHint();
       updateShopButtons();
-    }
-
-    function updateShopButtons(){
-      btnUpClick.disabled = score < parseInt(costPerClick.textContent, 10);
-      btnUpAuto.disabled = score < parseInt(costAuto.textContent, 10);
     }
 
     async function flushClicks(){
-      if (pendingClicks <= 0) return;
-      const count = pendingClicks;
+      if (pendingClicks <= 0 || isFlushing) return;
+      isFlushing = true;
+      const batchCount = pendingClicks;
       pendingClicks = 0;
+      updatePendingHint();
+
       try {
-        const data = await api("{% url 'api_clicker_click' %}", 'POST', {count: count});
+        const data = await api("{% url 'api_clicker_click' %}", 'POST', {count: batchCount});
+        // Применяем ответ сервера
         applyState(data);
-      } catch(e){}
+        // Если во время flush прилетели новые клики — они уже в pendingClicks, ок
+      } catch (e) {
+        // Если ошибка — вернём клики обратно в pending, чтобы не потерять
+        pendingClicks += batchCount;
+        updatePendingHint();
+      } finally {
+        isFlushing = false;
+        // Если после flush ещё остались pending — запускаем ещё один цикл
+        if (pendingClicks > 0) {
+          scheduleFlush();
+        }
+      }
     }
 
-    btnClick.addEventListener('click', () => {
-      // Локально сразу прибавляем — пользователь видит мгновенный отклик
-      const perClick = parseInt(perClickEl.textContent.replace('+', ''), 10) || 1;
-      score += perClick;
-      scoreEl.textContent = score;
-      updateShopButtons();
+    function scheduleFlush(){
+      if (flushTimer) return;
+      flushTimer = setTimeout(() => {
+        flushTimer = null;
+        flushClicks();
+      }, FLUSH_INTERVAL_MS);
+    }
 
+    // ─── Клик по питомцу ───────────────────────────────────────
+    btnClick.addEventListener('click', () => {
+      // Мгновенный отклик — визуально ничего не ждёт
       pendingClicks += 1;
-      if (!flushTimer) {
-        flushTimer = setTimeout(() => { flushTimer = null; flushClicks(); }, 500);
+      updateScoreDisplay();
+      updatePendingHint();
+      updateShopButtons();
+      scheduleFlush();
+    });
+
+    // ─── Улучшения ─────────────────────────────────────────────
+    btnUpClick.addEventListener('click', async () => {
+      // Сначала отправим всё накопленное, чтобы сервер знал актуальный score
+      if (pendingClicks > 0) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+        await flushClicks();
+        // Если после flush всё ещё pending (ошибка) — не идём дальше
+        if (pendingClicks > 0) return;
+      }
+      try {
+        const data = await api("{% url 'api_upgrade_click' %}", 'POST');
+        applyState(data);
+      } catch (e) {
+        if (e && e.error) alert(e.error);
       }
     });
 
-    btnUpClick.addEventListener('click', async () => {
-      try {
-        await flushClicks();  // сначала отправим накопленные клики
-        const data = await api("{% url 'api_upgrade_click' %}", 'POST');
-        applyState(data);
-      } catch (e) {}
-    });
-
     btnUpAuto.addEventListener('click', async () => {
-      try {
+      if (pendingClicks > 0) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
         await flushClicks();
+        if (pendingClicks > 0) return;
+      }
+      try {
         const data = await api("{% url 'api_upgrade_auto' %}", 'POST');
         applyState(data);
-      } catch (e) {}
+      } catch (e) {
+        if (e && e.error) alert(e.error);
+      }
     });
 
-    // Объединённый polling: state + leaderboard одним запросом раз в 7 секунд
+    // ─── Polling state + leaderboard ───────────────────────────
     async function poll(){
+      // Не опрашиваем, если сейчас есть что отправлять — сначала flush
+      if (pendingClicks > 0 || isFlushing) return;
+
       try {
         const data = await api("{% url 'api_state_lb' %}");
         applyState(data);
+
         const lb = data.leaderboard || [];
         lbEl.innerHTML = lb.map(p => {
           const cls = [];
@@ -231,18 +309,33 @@
       })[c]);
     }
 
-    // Локальный автотик — без запросов к серверу
+    // ─── Локальный автотик (визуальный) ────────────────────────
+    // Каждую секунду прибавляем auto_rate к serverScore.
+    // Реально сервер начислит то же самое, но чуть позже — мы показываем оптимистично.
     setInterval(() => {
-      const rate = parseInt(autoRateEl.textContent.replace('+', ''), 10) || 0;
+      const rate = getAutoRate();
       if (rate > 0) {
-        score += rate;
-        scoreEl.textContent = score;
+        serverScore += rate;
+        updateScoreDisplay();
         updateShopButtons();
       }
     }, 1000);
 
-    // Polling раз в 7 секунд (было 3-4)
-    setInterval(poll, 7000);
+    // ─── Flush при уходе со страницы (чтобы не потерять клики) ─
+    window.addEventListener('beforeunload', () => {
+      if (pendingClicks > 0) {
+        // sendBeacon сработает даже при закрытии вкладки
+        const fd = new FormData();
+        fd.append('count', pendingClicks);
+        fd.append('csrfmiddlewaretoken', csrf);
+        navigator.sendBeacon("{% url 'api_clicker_click' %}", fd);
+      }
+    });
+
+    // ─── Старт ─────────────────────────────────────────────────
+    updateScoreDisplay();
+    updateShopButtons();
+    setInterval(poll, POLL_INTERVAL_MS);
     poll();
   })();
 </script>
