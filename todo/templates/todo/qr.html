@@ -206,15 +206,10 @@
         if (!qr) qr = new Html5Qrcode('qr-reader', { verbose: false });
 
         try {
-          // Задняя камера, максимально возможное разрешение
-          const cameraConfig = {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          };
-
+          // ⚠️ cameraIdOrConfig: только ОДИН ключ — facingMode
+          // Разрешение задаём через videoConstraints в конфиге
           await qr.start(
-            cameraConfig,
+            { facingMode: 'environment' },
             {
               fps: 15,
               qrbox: function(w, h){
@@ -224,6 +219,11 @@
               },
               aspectRatio: 1.0,
               disableFlip: false,
+              videoConstraints: {
+                width: { ideal: 1920 },
+                height: { ideal: 1080 },
+                facingMode: { ideal: 'environment' },
+              },
             },
             onScan,
             () => {}
@@ -233,7 +233,7 @@
           // Дадим браузеру установить поток, потом проверим возможности зума
           setTimeout(async () => {
             await detectZoomCapability();
-            // Установим зум 1.5x по умолчанию — это уводит от широкоугольного вида
+            // 1.5x по умолчанию — уводит от широкоугольного вида
             setZoom(1.5);
           }, 450);
 
