@@ -2,6 +2,48 @@
 {% load static %}
 {% block title %}Вход · {{ site_name }}{% endblock %}
 {% block body %}
+
+<style>
+  /* ─── Капча: не вылезает за пределы бокса ─── */
+  .captcha-wrap{
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    width:100%;
+    max-width:100%;
+    overflow:hidden;
+    margin-top:8px;
+  }
+  .captcha-wrap .smart-captcha{
+    max-width:100%;
+  }
+  .captcha-wrap iframe{
+    max-width:100%;
+  }
+
+  /* На узких экранах поджимаем login-box и уменьшаем капчу */
+  @media (max-width: 520px){
+    .login-box{
+      padding:32px 20px !important;
+      max-width:100% !important;
+    }
+    .captcha-wrap{
+      transform:scale(0.88);
+      transform-origin:center center;
+      /* компенсируем уменьшение, чтобы не было пустого места */
+      margin-top:0;
+      margin-bottom:-8px;
+    }
+  }
+
+  @media (max-width: 400px){
+    .captcha-wrap{
+      transform:scale(0.78);
+      margin-bottom:-16px;
+    }
+  }
+</style>
+
 <div class="login-wrap">
   <div class="login-box">
     <div class="login-logo">
@@ -35,13 +77,15 @@
       {# ─── Yandex SmartCaptcha ─── #}
       <div class="field">
         <label>Подтвердите, что вы не робот</label>
-        <div
-                id="captcha-container"
-                class="smart-captcha"
-                data-sitekey="{{ YANDEX_SMARTCAPTCHA_CLIENT_KEY }}"
-                data-callback="onCaptchaSuccess"
-                style="height: 100px; margin-top: 8px;"
-        ></div>
+        <div class="captcha-wrap">
+          <div
+                  id="captcha-container"
+                  class="smart-captcha"
+                  data-sitekey="{{ YANDEX_SMARTCAPTCHA_CLIENT_KEY }}"
+                  data-callback="onCaptchaSuccess"
+                  style="height: 100px;"
+          ></div>
+        </div>
       </div>
 
       <button type="submit" class="btn" id="submit-btn" style="width:100%" disabled>Пройдите капчу</button>
@@ -63,7 +107,6 @@
     var form = document.getElementById('login-form');
     var btn = document.getElementById('submit-btn');
 
-    // Страховка: не даём отправить форму без токена
     form.addEventListener('submit', function(e){
       var tokenInput = form.querySelector('input[name="smart-token"]');
       if (!tokenInput || !tokenInput.value) {
