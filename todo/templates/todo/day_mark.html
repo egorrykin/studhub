@@ -1,0 +1,32 @@
+{% extends 'todo/base.html' %}
+{% block title %}Пометить день · {{ user_group_name }}{% endblock %}
+{% block content %}
+
+<h1>Пометить день как важный</h1>
+<p class="sub">
+    День будет выделен красным в расписании — например, контрольная, зачёт, экзамен или собрание
+</p>
+
+<form method="post" class="card" style="max-width:640px">
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+    <div class="form-nonfield-errors">
+        {% for e in form.non_field_errors %}{{ e }}{% endfor %}
+    </div>
+    {% endif %}
+
+    {% for field in form %}
+    <div class="field">
+        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% if field.errors %}<ul class="errorlist">{% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+    </div>
+    {% endfor %}
+
+    <div class="form-actions">
+        <button type="submit" class="btn">🔴 Пометить</button>
+        <a href="{% url 'schedule' %}" class="btn ghost">Отмена</a>
+    </div>
+</form>
+{% endblock %}

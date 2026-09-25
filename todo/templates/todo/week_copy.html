@@ -1,0 +1,49 @@
+{% extends 'todo/base.html' %}
+{% block title %}Копирование недели · {{ user_group_name }}{% endblock %}
+{% block content %}
+
+<h1>Копировать неделю</h1>
+<p class="sub">
+  Источник: <b style="color:var(--lime)">{{ source_label }}</b>
+  · {{ source_count }} пар
+</p>
+
+<div class="card" style="max-width:640px">
+  <p style="color:var(--muted);font-size:13.5px;margin-bottom:20px">
+    Копируются только сами пары (предмет, тип, преподаватель, аудитория).
+    ДЗ, файлы, материалы, отметки и объявления <b>не копируются</b>.
+  </p>
+
+  {% if source_count == 0 %}
+  <div class="empty" style="margin:0">
+    <span class="em-icon">◌</span>
+    В этой неделе нет пар — копировать нечего
+  </div>
+  <div class="form-actions">
+    <a href="{% url 'schedule' %}?week={{ source_week }}" class="btn ghost">← Назад</a>
+  </div>
+  {% else %}
+  <form method="post">
+    {% csrf_token %}
+
+    <div class="field">
+      <label for="{{ form.target_week.id_for_label }}">{{ form.target_week.label }}</label>
+      {{ form.target_week }}
+    </div>
+
+    <div class="field">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;text-transform:none;letter-spacing:0;font-size:14px;color:var(--text);margin-bottom:0">
+        {{ form.overwrite }}
+        <span>{{ form.overwrite.label }}</span>
+      </label>
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn">📋 Копировать</button>
+      <a href="{% url 'schedule' %}?week={{ source_week }}" class="btn ghost">Отмена</a>
+    </div>
+  </form>
+  {% endif %}
+</div>
+
+{% endblock %}

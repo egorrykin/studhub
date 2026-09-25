@@ -1,0 +1,129 @@
+{% extends 'todo/base.html' %}
+{% block title %}{% if object %}Изменить пару{% else %}Новая пара{% endif %} · {{ user_group_name }}{% endblock %}
+{% block content %}
+
+<style>
+  .groups-grid{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
+    gap:8px;margin-top:8px;
+  }
+  .group-option{
+    display:flex;align-items:center;gap:10px;
+    padding:10px 14px;border-radius:12px;
+    background:rgba(255,255,255,.03);
+    border:1px solid var(--border);
+    cursor:pointer;transition:all .15s var(--ease);
+    font-size:13.5px;user-select:none;
+  }
+  .group-option:hover{border-color:var(--border-2);background:rgba(255,255,255,.06)}
+  .group-option input{width:auto;margin:0;accent-color:var(--lime)}
+  .group-option:has(input:checked){
+    border-color:var(--lime);background:rgba(198,255,0,.08);
+    color:var(--lime);font-weight:700;
+  }
+  .templates-row{
+    display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;
+  }
+  .template-chip{
+    padding:6px 14px;border-radius:999px;
+    background:rgba(167,139,250,.12);
+    border:1px solid rgba(167,139,250,.4);
+    color:#b794f6;font-weight:700;font-size:12.5px;
+    cursor:pointer;transition:all .15s var(--ease);
+    font-family:inherit;
+  }
+  .template-chip:hover{
+    background:rgba(167,139,250,.22);
+    border-color:#a78bfa;transform:translateY(-1px);
+  }
+  .template-chip .count{
+    color:var(--muted);font-weight:600;font-size:11px;margin-left:6px;
+  }
+</style>
+
+<h1>{% if object %}Изменить пару{% else %}Новая пара{% endif %}</h1>
+<p class="sub">
+  {{ lecture_date|date:"d.m.Y" }} · {{ slot }} пара · {{ slot_time }}
+</p>
+
+<form method="post" class="card" style="max-width:720px">
+  {% csrf_token %}
+  {% if not object %}
+  <input type="hidden" name="date" value="{{ lecture_date|date:'Y-m-d' }}">
+  <input type="hidden" name="slot" value="{{ slot }}">
+  {% endif %}
+
+  {% if form.non_field_errors %}
+  <div class="form-nonfield-errors">
+    {% for e in form.non_field_errors %}{{ e }}{% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="field">
+    <label>Группы на паре</label>
+
+    {% if templates %}
+    <div class="templates-row">
+        <span style="font-size:11px;color:var(--muted);text-transform:uppercase;
+                     letter-spacing:1.3px;font-weight:700;align-self:center;margin-right:4px">
+          Шаблоны:
+        </span>
+      {% for t in templates %}
+      <button type="button" class="template-chip" data-groups="{% for g in t.groups.all %}{{ g.pk }}{% if not forloop.last %},{% endif %}{% endfor %}">
+        {{ t.name }}<span class="count">{{ t.groups.count }}</span>
+      </button>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="groups-grid" id="groups-grid">
+      {% for choice in form.groups %}
+      <label class="group-option" data-group-id="{{ choice.data.value }}">
+        {{ choice.tag }}
+        <span>{{ choice.choice_label }}</span>
+      </label>
+      {% endfor %}
+    </div>
+
+    {% if form.groups.errors %}
+    <ul class="errorlist">{% for e in form.groups.errors %}<li>{{ e }}</li>{% endfor %}</ul>
+    {% endif %}
+  </div>
+
+  {% for field in form %}
+  {% if field.name != 'groups' %}
+  <div class="field">
+    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+    {{ field }}
+    {% if field.errors %}<ul class="errorlist">{% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+  </div>
+  {% endif %}
+  {% endfor %}
+
+  <div class="form-actions">
+    <button type="submit" class="btn">Сохранить</button>
+    <a href="{% url 'schedule' %}" class="btn ghost">Отмена</a>
+  </div>
+</form>
+
+<script>
+  (function(){
+    const grid = document.getElementById('groups-grid');
+    const chips = document.querySelectorAll('.template-chip');
+
+    chips.forEach(chip => {
+      chip.addEventListener('click', () => {
+        const ids = (chip.dataset.groups || '').split(',').filter(Boolean);
+        // снять все
+        grid.querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = false);
+        // отметить нужные
+        ids.forEach(id => {
+          const cb = grid.querySelector(`input[type=checkbox][value="${id}"]`);
+          if (cb) cb.checked = true;
+        });
+      });
+    });
+  })();
+</script>
+
+{% endblock %}

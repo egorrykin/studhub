@@ -1,0 +1,113 @@
+{% extends 'todo/base.html' %}
+{% block title %}Шаблоны групп · {{ site_name }}{% endblock %}
+{% block content %}
+
+<style>
+  .groups-grid{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
+    gap:8px;margin-top:8px;
+  }
+  .group-option{
+    display:flex;align-items:center;gap:10px;
+    padding:10px 14px;border-radius:12px;
+    background:rgba(255,255,255,.03);
+    border:1px solid var(--border);
+    cursor:pointer;transition:all .15s var(--ease);
+    font-size:13.5px;user-select:none;
+  }
+  .group-option:hover{border-color:var(--border-2);background:rgba(255,255,255,.06)}
+  .group-option input{width:auto;margin:0;accent-color:var(--lime)}
+  .group-option:has(input:checked){
+    border-color:var(--lime);background:rgba(198,255,0,.08);
+    color:var(--lime);font-weight:700;
+  }
+  .tpl-row{
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    background:var(--glass);border:1px solid var(--border);
+    border-radius:var(--radius);padding:16px 22px;margin-bottom:10px;
+  }
+  .tpl-name{font-weight:800;font-size:15px}
+  .tpl-groups{
+    display:flex;gap:6px;flex-wrap:wrap;flex:1;min-width:0;
+  }
+  .tpl-badge{
+    padding:3px 10px;border-radius:999px;
+    background:rgba(167,139,250,.14);
+    border:1px solid rgba(167,139,250,.4);
+    color:#b794f6;font-size:11.5px;font-weight:700;
+  }
+  .tpl-meta{color:var(--muted);font-size:12px;white-space:nowrap}
+</style>
+
+<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;margin-bottom:28px">
+  <div>
+    <h1>Шаблоны групп</h1>
+    <p class="sub" style="margin-bottom:0">
+      Комбинации групп для быстрой привязки к паре. Видны только вам.
+    </p>
+  </div>
+</div>
+
+<div class="card" style="max-width:720px;margin-bottom:32px">
+  <h2>Новый шаблон</h2>
+  <form method="post">
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+    <div class="form-nonfield-errors">{% for e in form.non_field_errors %}{{ e }}{% endfor %}</div>
+    {% endif %}
+
+    <div class="field">
+      <label for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+      {{ form.name }}
+      {% if form.name.errors %}<ul class="errorlist">{% for e in form.name.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+    </div>
+
+    <div class="field">
+      <label>{{ form.groups.label }}</label>
+      <div class="groups-grid">
+        {% for choice in form.groups %}
+        <label class="group-option">
+          {{ choice.tag }}
+          <span>{{ choice.choice_label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      {% if form.groups.errors %}<ul class="errorlist">{% for e in form.groups.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn">Создать шаблон</button>
+      <a href="{% url 'schedule' %}" class="btn ghost">Отмена</a>
+    </div>
+  </form>
+</div>
+
+<h2>Существующие шаблоны</h2>
+
+{% for t in templates %}
+<div class="tpl-row">
+  <span class="tpl-name">{{ t.name }}</span>
+  <div class="tpl-groups">
+    {% for g in t.groups.all %}
+    <span class="tpl-badge">{{ g.name }}</span>
+    {% endfor %}
+  </div>
+  <span class="tpl-meta">
+      {% if t.created_by %}{{ t.created_by.short_name }} · {% endif %}{{ t.created_at|date:"d.m.Y" }}
+    </span>
+  {% if user.is_superuser or t.created_by_id == user.pk %}
+  <form method="post" action="{% url 'template_delete' t.pk %}" style="display:inline">
+    {% csrf_token %}
+    <button type="submit" class="btn danger small">🗑</button>
+  </form>
+  {% endif %}
+</div>
+{% empty %}
+<div class="empty">
+  <span class="em-icon">◌</span>
+  Шаблонов пока нет. Создайте первый.
+</div>
+{% endfor %}
+
+{% endblock %}

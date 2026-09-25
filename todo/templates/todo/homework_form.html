@@ -1,0 +1,43 @@
+{% extends 'todo/base.html' %}
+{% block title %}{% if object %}Изменить ДЗ{% else %}Новое ДЗ{% endif %}{% endblock %}
+{% block content %}
+
+<h1>{% if object %}Изменить ДЗ{% else %}Новое ДЗ{% endif %}</h1>
+<p class="sub">
+  {{ lecture.subject }} · {{ lecture.date|date:"d.m.Y" }} · {{ lecture.time_start|time:"H:i" }}
+</p>
+
+<form method="post" enctype="multipart/form-data" class="card" style="max-width:640px">
+  {% csrf_token %}
+
+  <div class="field">
+    <label for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+    {{ form.description }}
+    {% if form.description.errors %}<ul class="errorlist">{% for e in form.description.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+  </div>
+
+  <div class="field">
+    <label for="{{ form.files.id_for_label }}">{{ form.files.label }}</label>
+    {{ form.files }}
+  </div>
+
+  {% if object and object.attachments.all %}
+  <div class="field">
+    <label>Уже прикреплено</label>
+    {% for a in object.attachments.all %}
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+      <a href="{{ a.file.url }}" target="_blank" rel="noopener">{{ a.filename }}</a>
+      <form method="post" action="{% url 'attachment_delete' a.pk %}">{% csrf_token %}
+        <button type="submit" class="btn danger small">Удалить</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="form-actions">
+    <button type="submit" class="btn">Сохранить</button>
+    <a href="{% url 'schedule' %}" class="btn ghost">Отмена</a>
+  </div>
+</form>
+{% endblock %}

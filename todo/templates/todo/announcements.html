@@ -1,0 +1,89 @@
+{% extends 'todo/base.html' %}
+{% block title %}Все объявления · РИБО-01-26{% endblock %}
+{% block content %}
+
+<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;margin-bottom:28px">
+  <div>
+    <h1>Объявления</h1>
+    <p class="sub" style="margin-bottom:0">Важная информация от старосты группы</p>
+  </div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <a href="{% url 'schedule' %}" class="btn ghost">← К расписанию</a>
+    {% if can_edit %}
+    <a href="{% url 'announcement_create' %}" class="btn">+ Объявление</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if announcements %}
+<div class="announcements">
+  {% for a in announcements %}
+  <div class="announcement {% if a.is_pinned %}pinned{% endif %}">
+    <div class="announcement-body">
+      <div class="announcement-head">
+        {% if a.is_pinned %}<span class="pin">📌</span>{% endif %}
+        <span class="announcement-title">{{ a.title }}</span>
+        <span class="announcement-date">{{ a.created_at|date:"d.m.Y H:i" }}</span>
+      </div>
+      <div class="announcement-text">{{ a.text }}</div>
+
+      {% if a.images.all %}
+      <div class="announcement-images">
+        {% for img in a.images.all %}
+        <span class="ann-img">
+                  <a href="{{ img.image.url }}" target="_blank" rel="noopener">
+                    <img src="{{ img.image.url }}" alt="">
+                  </a>
+                  {% if can_edit %}
+                    <form method="post" action="{% url 'announcement_image_delete' img.pk %}" class="ann-img-del">
+                      {% csrf_token %}
+                      <button type="submit" class="att-del" title="Удалить">×</button>
+                    </form>
+                  {% endif %}
+                </span>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if a.author %}<div class="announcement-author">— {{ a.author.short_name }}</div>{% endif %}
+    </div>
+    {% if can_edit %}
+    <div class="announcement-actions">
+      <a href="{% url 'announcement_update' a.pk %}" class="btn ghost small">✎</a>
+      <form method="post" action="{% url 'announcement_delete' a.pk %}" style="display:inline">
+        {% csrf_token %}
+        <button type="submit" class="btn danger small" title="Удалить">×</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+{% if is_paginated %}
+<div class="pagination">
+  {% if page_obj.has_previous %}
+  <a href="?page={{ page_obj.previous_page_number }}" class="btn ghost small">← Назад</a>
+  {% endif %}
+  <span class="pagination-info">
+        Страница {{ page_obj.number }} из {{ page_obj.paginator.num_pages }}
+      </span>
+  {% if page_obj.has_next %}
+  <a href="?page={{ page_obj.next_page_number }}" class="btn ghost small">Вперёд →</a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="empty">
+  <span class="em-icon">◌</span>
+  Объявлений пока нет
+  {% if can_edit %}
+  <div style="margin-top:20px">
+    <a href="{% url 'announcement_create' %}" class="btn">+ Создать первое объявление</a>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}

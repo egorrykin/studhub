@@ -1,0 +1,206 @@
+{% extends 'todo/base.html' %}
+{% block title %}Симулятор другалька · РИБО-01-26{% endblock %}
+{% block content %}
+{% load static %}
+
+<div style="margin-bottom:24px">
+  <h1>Симулятор другалька</h1>
+  <p class="sub" style="margin-bottom:0">Тыкай — корми — расти. Битва за корону группы 👑</p>
+</div>
+
+<div class="clicker-page">
+  <div class="clicker-main">
+    <div style="text-align:center">
+      <div class="clicker-score" id="score">{{ profile.score }}</div>
+      <div class="clicker-sub">
+        очков · <b id="per-click">+{{ profile.per_click }}</b> за клик ·
+        <b id="auto-rate">+{{ profile.auto_per_sec }}</b>/сек
+      </div>
+    </div>
+
+    <form onsubmit="return false;" style="display:flex;justify-content:center">
+      {% csrf_token %}
+      <button type="button" class="friend" id="friend">
+        <span class="friend-emoji" id="friend-emoji">{{ profile.stage.1 }}</span>
+        <span class="friend-name" id="friend-name">{{ profile.stage.0 }}</span>
+        <span class="friend-level" id="friend-level">ур. {{ profile.level }}</span>
+      </button>
+    </form>
+
+    <div class="clicker-hint">
+      Всего кликов: <b id="total-clicks">{{ profile.total_clicks }}</b> ·
+      Место в группе: <b id="my-rank">— / —</b>
+      <span id="live-dot" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#c6ff00;margin-left:8px;box-shadow:0 0 8px #c6ff00;vertical-align:middle"></span>
+    </div>
+  </div>
+
+  <div class="clicker-side">
+    <div class="clicker-shop">
+      <h3>Улучшения</h3>
+      <button type="button" class="upgrade-btn" id="upgrade-click-btn"
+              data-cost="{{ profile.per_click_cost }}">
+        <span class="upgrade-icon">👆</span>
+        <div class="upgrade-info">
+          <div class="upgrade-name">Крепкий палец</div>
+          <div class="upgrade-desc">+1 за клик · сейчас <span id="shop-per-click">+{{ profile.per_click }}</span></div>
+        </div>
+        <div class="upgrade-cost" id="cost-per-click">{{ profile.per_click_cost }}</div>
+      </button>
+
+      <button type="button" class="upgrade-btn" id="upgrade-auto-btn"
+              data-cost="{{ profile.auto_cost }}">
+        <span class="upgrade-icon">⚡</span>
+        <div class="upgrade-info">
+          <div class="upgrade-name">Автокликер</div>
+          <div class="upgrade-desc">+1/сек · сейчас <span id="shop-auto">+{{ profile.auto_per_sec }}</span>/сек</div>
+        </div>
+        <div class="upgrade-cost" id="cost-auto">{{ profile.auto_cost }}</div>
+      </button>
+    </div>
+
+    <div class="clicker-leaderboard">
+      <h3>Рейтинг группы · онлайн</h3>
+      <ol id="leaderboard">
+        <li><span class="lb-rank">—</span><span class="lb-name">Загрузка...</span></li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function(){
+    const scoreEl = document.getElementById('score');
+    const perClickEl = document.getElementById('per-click');
+    const autoRateEl = document.getElementById('auto-rate');
+    const totalClicksEl = document.getElementById('total-clicks');
+    const myRankEl = document.getElementById('my-rank');
+    const emojiEl = document.getElementById('friend-emoji');
+    const nameEl = document.getElementById('friend-name');
+    const levelEl = document.getElementById('friend-level');
+    const shopPerClick = document.getElementById('shop-per-click');
+    const shopAuto = document.getElementById('shop-auto');
+    const costPerClick = document.getElementById('cost-per-click');
+    const costAuto = document.getElementById('cost-auto');
+    const btnClick = document.getElementById('friend');
+    const btnUpClick = document.getElementById('upgrade-click-btn');
+    const btnUpAuto = document.getElementById('upgrade-auto-btn');
+    const lbEl = document.getElementById('leaderboard');
+
+    const csrf = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+    let score = {{ profile.score }};
+    let lastServerScore = score;
+
+    async function api(url, method){
+      const r = await fetch(url, {
+        method: method || 'GET',
+        headers: {'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'},
+      });
+      const data = await r.json();
+      if (!r.ok) throw data;
+      return data;
+    }
+
+    function applyState(s){
+      if (s.score !== undefined) { score = s.score; scoreEl.textContent = score; }
+      if (s.per_click !== undefined) {
+        perClickEl.textContent = '+' + s.per_click;
+        shopPerClick.textContent = '+' + s.per_click;
+      }
+      if (s.auto_per_sec !== undefined) {
+        autoRateEl.textContent = '+' + s.auto_per_sec;
+        shopAuto.textContent = '+' + s.auto_per_sec;
+      }
+      if (s.level !== undefined) levelEl.textContent = 'ур. ' + s.level;
+      if (s.stage_emoji) emojiEl.textContent = s.stage_emoji;
+      if (s.stage_name) nameEl.textContent = s.stage_name;
+      if (s.total_clicks !== undefined) totalClicksEl.textContent = s.total_clicks;
+      if (s.per_click_cost !== undefined) costPerClick.textContent = s.per_click_cost;
+      if (s.auto_cost !== undefined) costAuto.textContent = s.auto_cost;
+      updateShopButtons();
+    }
+
+    function updateShopButtons(){
+      btnUpClick.disabled = score < parseInt(costPerClick.textContent, 10);
+      btnUpAuto.disabled = score < parseInt(costAuto.textContent, 10);
+    }
+
+    // Клик по питомцу — мгновенно обновляем локально, потом синхронизация
+    btnClick.addEventListener('click', async () => {
+      score += parseInt(perClickEl.textContent.replace('+', ''), 10) || 1;
+      scoreEl.textContent = score;
+      updateShopButtons();
+
+      try {
+        const data = await api("{% url 'api_clicker_click' %}", 'POST');
+        applyState(data);
+      } catch (e) {}
+    });
+
+    btnUpClick.addEventListener('click', async () => {
+      try {
+        const data = await api("{% url 'api_upgrade_click' %}", 'POST');
+        applyState(data);
+      } catch (e) {}
+    });
+
+    btnUpAuto.addEventListener('click', async () => {
+      try {
+        const data = await api("{% url 'api_upgrade_auto' %}", 'POST');
+        applyState(data);
+      } catch (e) {}
+    });
+
+    // Опрос состояния + лидерборда каждые 2 секунды
+    async function pollState(){
+      try {
+        const s = await api("{% url 'api_clicker_state' %}");
+        // на сервере мог накопиться автоклик — берём его как истину
+        lastServerScore = s.score;
+        applyState(s);
+      } catch (e) {}
+    }
+
+    async function pollLeaderboard(){
+      try {
+        const data = await api("{% url 'api_leaderboard' %}");
+        const lb = data.leaderboard || [];
+        lbEl.innerHTML = lb.map(p => {
+          const cls = [];
+          if (p.is_me) cls.push('me');
+          if (p.rank === 1) cls.push('top1');
+          const rank = p.rank === 1 ? '👑' : p.rank;
+          return `<li class="${cls.join(' ')}">
+            <span class="lb-rank">${rank}</span>
+            <span class="lb-name">${escapeHtml(p.name)}</span>
+            <span class="lb-score">${p.score}</span>
+          </li>`;
+        }).join('');
+        if (data.my_rank) myRankEl.textContent = data.my_rank + ' / ' + lb.length;
+      } catch (e) {}
+    }
+
+    function escapeHtml(s){
+      return String(s).replace(/[&<>"']/g, c => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      })[c]);
+    }
+
+    // локальный автотик (визуальный) — очки растут каждый тик, пока не придёт с сервера
+    setInterval(() => {
+      const rate = parseInt(autoRateEl.textContent.replace('+', ''), 10) || 0;
+      if (rate > 0) {
+        score += rate;
+        scoreEl.textContent = score;
+        updateShopButtons();
+      }
+    }, 1000);
+
+    setInterval(pollState, 3000);
+    setInterval(pollLeaderboard, 4000);
+    pollState();
+    pollLeaderboard();
+  })();
+</script>
+
+{% endblock %}

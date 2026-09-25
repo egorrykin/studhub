@@ -1,0 +1,49 @@
+{% extends 'todo/base.html' %}
+{% block title %}{% if object %}Изменить объявление{% else %}Новое объявление{% endif %}{% endblock %}
+{% block content %}
+
+<h1>{% if object %}Изменить объявление{% else %}Новое объявление{% endif %}</h1>
+<p class="sub">Все студенты группы увидят это на главной странице</p>
+
+<form method="post" enctype="multipart/form-data" class="card" style="max-width:640px">
+  {% csrf_token %}
+  {% for field in form %}
+  <div class="field">
+    {% if field.name == 'is_pinned' %}
+    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;text-transform:none;letter-spacing:0;font-size:14px;color:var(--text);margin-bottom:0">
+      {{ field }}
+      <span>{{ field.label }} — будет сверху списка</span>
+    </label>
+    {% else %}
+    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+    {{ field }}
+    {% endif %}
+    {% if field.errors %}<ul class="errorlist">{% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+  </div>
+  {% endfor %}
+
+  {% if object and object.images.all %}
+  <div class="field">
+    <label>Уже прикреплённые картинки</label>
+    <div class="announcement-images" style="margin-top:0">
+      {% for img in object.images.all %}
+      <span class="ann-img">
+            <a href="{{ img.image.url }}" target="_blank" rel="noopener">
+              <img src="{{ img.image.url }}" alt="">
+            </a>
+            <form method="post" action="{% url 'announcement_image_delete' img.pk %}" class="ann-img-del">
+              {% csrf_token %}
+              <button type="submit" class="att-del" title="Удалить">×</button>
+            </form>
+          </span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="form-actions">
+    <button type="submit" class="btn">Опубликовать</button>
+    <a href="{% url 'schedule' %}" class="btn ghost">Отмена</a>
+  </div>
+</form>
+{% endblock %}

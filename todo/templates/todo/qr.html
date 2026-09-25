@@ -1,0 +1,161 @@
+{% extends 'todo/base.html' %}
+{% load static %}
+{% block title %}QR-сканер · {{ site_name }}{% endblock %}
+{% block content %}
+
+<style>
+    .qr-wrap{
+      max-width:520px;margin:0 auto;
+      display:flex;flex-direction:column;gap:16px;
+    }
+    .qr-stage{
+      position:relative;
+      background:#000;border-radius:20px;overflow:hidden;
+      border:1px solid var(--border);
+      aspect-ratio:1/1;
+    }
+    #qr-reader{width:100%;height:100%;border:none}
+    #qr-reader video{object-fit:cover;width:100%;height:100%}
+    .qr-status{
+      padding:14px 20px;border-radius:14px;font-size:14px;
+      background:rgba(255,255,255,.04);border:1px solid var(--border-2);
+      text-align:center;color:var(--muted);
+    }
+    .qr-status.ok{
+      background:rgba(198,255,0,.08);border-color:rgba(198,255,0,.4);color:var(--lime);
+    }
+    .qr-status.err{
+      background:rgba(255,107,107,.08);border-color:rgba(255,107,107,.35);color:var(--danger);
+    }
+    .qr-flash{
+      position:fixed;inset:0;z-index:999;
+      background:rgba(198,255,0,.15);
+      display:flex;align-items:center;justify-content:center;
+      animation:qrFlash .5s ease-out forwards;
+      pointer-events:none;
+    }
+    .qr-flash .msg{
+      padding:20px 32px;border-radius:16px;
+      background:rgba(5,5,7,.92);
+      border:1px solid var(--lime);
+      color:var(--lime);font-weight:800;font-size:16px;
+      box-shadow:0 0 40px rgba(198,255,0,.4);
+      text-align:center;
+      max-width:80vw;
+      word-break:break-all;
+    }
+    @keyframes qrFlash{
+      0%{opacity:0}
+      20%{opacity:1}
+      100%{opacity:1}
+    }
+</style>
+
+<h1>QR-сканер</h1>
+<p class="sub">Наведите камеру на QR-код — переход произойдёт автоматически</p>
+
+<div class="qr-wrap">
+    <div class="qr-stage">
+        <div id="qr-reader"></div>
+    </div>
+
+    <div class="qr-status" id="qr-status">Запуск камеры…</div>
+
+    <div style="display:flex;gap:10px;justify-content:center">
+        <button type="button" id="qr-restart" class="btn ghost">Сканировать снова</button>
+    </div>
+</div>
+
+<script src="{% static 'todo/html5-qrcode.min.js' %}"></script>
+<script>
+    (function(){
+      const statusEl = document.getElementById('qr-status');
+      const restartBtn = document.getElementById('qr-restart');
+
+      let qr = null;
+      let scanning = false;
+      let handled = false;
+
+      function setStatus(text, cls) {
+        statusEl.textContent = text;
+        statusEl.className = 'qr-status' + (cls ? ' ' + cls : '');
+      }
+
+      async function start() {
+        handled = false;
+        setStatus('Запуск камеры…');
+
+        if (qr && scanning) {
+          try { await qr.stop(); } catch(e){}
+          scanning = false;
+        }
+
+        if (!qr) qr = new Html5Qrcode('qr-reader', { verbose: false });
+
+        try {
+          await qr.start(
+            { facingMode: 'environment' },
+            { fps: 20, aspectRatio: 1.0 },
+            onScan,
+            () => {}
+          );
+          scanning = true;
+          setStatus('Наведите камеру на QR-код', 'ok');
+        } catch (e) {
+          setStatus('Не удалось получить доступ к камере: ' + (e.message || e), 'err');
+        }
+      }
+
+      async function stop() {
+        if (qr && scanning) {
+          try { await qr.stop(); } catch(e){}
+          scanning = false;
+        }
+      }
+
+      async function onScan(decoded) {
+        if (handled || !decoded) return;
+        handled = true;
+
+        await stop();
+
+        const isUrl = /^https?:\/\//i.test(decoded) || decoded.startsWith('/');
+
+        if (isUrl) {
+          setStatus('Переход: ' + decoded, 'ok');
+          showFlash(decoded);
+          setTimeout(() => {
+            window.location.href = decoded;
+          }, 700);
+        } else {
+          // Не ссылка — показываем просто содержимое
+          setStatus('Распознано: ' + decoded, 'ok');
+          showFlash(decoded);
+          setTimeout(() => {
+            handled = false;
+            start();
+          }, 2500);
+        }
+      }
+
+      function showFlash(text) {
+        const el = document.createElement('div');
+        el.className = 'qr-flash';
+        el.innerHTML = '<div class="msg">' + escapeHtml(text) + '</div>';
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 2500);
+      }
+
+      function escapeHtml(s){
+        return String(s).replace(/[&<>"']/g, c => ({
+          '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+        })[c]);
+      }
+
+      restartBtn.addEventListener('click', start);
+      window.addEventListener('load', start);
+      window.addEventListener('beforeunload', stop);
+    })();
+</script>
+
+{% endblock %}

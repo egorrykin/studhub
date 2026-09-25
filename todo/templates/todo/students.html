@@ -1,0 +1,97 @@
+{% extends 'todo/base.html' %}
+{% block title %}Студенты · {{ user_group_name }}{% endblock %}
+{% block content %}
+
+<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;margin-bottom:28px">
+  <div>
+    <h1>Студенты группы</h1>
+    <p class="sub" style="margin-bottom:0">Респекты, заметки и аккаунты</p>
+  </div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <a href="{% url 'student_create' %}" class="btn">+ Создать аккаунт</a>
+  </div>
+</div>
+
+<div class="students-list">
+  {% for s in students %}
+  <div class="student-card">
+    <div class="student-head">
+      <span class="student-name">{{ s.full_name|default:s.email }}</span>
+      <span class="student-role">{{ s.get_role_display }}</span>
+      <span class="student-respects {% if s.respect_total < 0 %}negative{% endif %}">
+          {% if s.respect_total > 0 %}❤️ +{{ s.respect_total }}
+          {% elif s.respect_total < 0 %}💢 {{ s.respect_total }}
+          {% else %}· 0{% endif %}
+        </span>
+    </div>
+
+    <div class="student-actions">
+      <form method="post" action="{% url 'add_respect' s.pk %}" class="respect-form">
+        {% csrf_token %}
+        <input type="hidden" name="value" value="1">
+        <input type="text" name="comment" maxlength="200"
+               placeholder="За что респект?"
+               class="respect-input">
+        <button type="submit" class="btn small">+1 Респект</button>
+      </form>
+
+      <form method="post" action="{% url 'add_respect' s.pk %}" class="respect-form">
+        {% csrf_token %}
+        <input type="hidden" name="value" value="-1">
+        <input type="text" name="comment" maxlength="200"
+               placeholder="За что пометка?"
+               class="respect-input">
+        <button type="submit" class="btn danger small">−1 Пометка</button>
+      </form>
+
+      {% if s.pk != my_pk and not s.is_superuser %}
+      <form method="post" action="{% url 'student_delete' s.pk %}"
+            onsubmit="return confirm('Удалить аккаунт {{ s.email|escapejs }}? Действие необратимо.');"
+            style="margin-left:auto">
+        {% csrf_token %}
+        <button type="submit" class="btn danger small">🗑 Удалить</button>
+      </form>
+      {% endif %}
+    </div>
+
+    <details class="respects-details">
+      <summary>История респектов ({{ s.respects_list|length }})</summary>
+      <div class="respects-list">
+        {% for r in s.respects_list %}
+        <div class="respect-item {% if r.is_plus %}plus{% else %}minus{% endif %}">
+          <span class="respect-sign">{% if r.is_plus %}+1{% else %}−1{% endif %}</span>
+          <span class="respect-comment">
+                {% if r.comment %}{{ r.comment }}{% else %}<span style="color:var(--muted2);font-style:italic">без комментария</span>{% endif %}
+              </span>
+          <span class="respect-meta">{{ r.created_at|date:"d.m.Y H:i" }}</span>
+          <form method="post" action="{% url 'delete_respect' r.pk %}">
+            {% csrf_token %}
+            <button type="submit" class="att-del" title="Удалить">×</button>
+          </form>
+        </div>
+        {% empty %}
+        <div class="hw-empty">Респектов пока нет</div>
+        {% endfor %}
+      </div>
+    </details>
+
+    <div style="margin-top:14px">
+      <details class="respects-details">
+        <summary>Заметка старосты</summary>
+        <form method="post" action="{% url 'save_note' s.pk %}" class="student-note" style="margin-top:10px">
+          {% csrf_token %}
+          <textarea name="note" rows="3" placeholder="Например: отлично отвечал на паре">{{ s.student_profile.note }}</textarea>
+          <button type="submit" class="btn ghost small">Сохранить</button>
+        </form>
+      </details>
+    </div>
+  </div>
+  {% empty %}
+  <div class="empty">
+    <span class="em-icon">◌</span>
+    Студентов пока нет. Создайте первый аккаунт.
+  </div>
+  {% endfor %}
+</div>
+
+{% endblock %}

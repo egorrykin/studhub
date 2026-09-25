@@ -1,0 +1,33 @@
+{% extends 'todo/base.html' %}
+{% block title %}Вход · STUDHUB{% endblock %}
+{% block body %}
+<div class="login-wrap">
+  <div class="login-box">
+    <div class="login-logo">
+      <span class="logo-mark">S</span>
+      <span class="logo-text">
+        <span class="top-line">STUDHUB</span>
+        <span class="bot-line">Расписание группы</span>
+      </span>
+    </div>
+    <h1>Вход</h1>
+    <p class="sub">Используйте email и пароль, выданные старостой</p>
+    <form method="post">
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+      <ul class="errorlist">{% for e in form.non_field_errors %}<li>{{ e }}</li>{% endfor %}</ul>
+      {% endif %}
+      <div class="field">
+        <label for="{{ form.username.id_for_label }}">Email</label>
+        {{ form.username }}
+        {% if form.username.errors %}<ul class="errorlist">{% for e in form.username.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+      </div>
+      <div class="field">
+        <label for="{{ form.password.id_for_label }}">Пароль</label>
+        {{ form.password }}
+      </div>
+      <button type="submit" class="btn" style="width:100%">Войти</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

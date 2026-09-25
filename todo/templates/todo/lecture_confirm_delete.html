@@ -1,0 +1,15 @@
+{% extends 'todo/base.html' %}
+{% block content %}
+<h1>Удалить лекцию?</h1>
+<p class="sub">
+  {{ lecture.subject }} · {{ lecture.date|date:"d.m.Y" }} · {{ lecture.time_start|time:"H:i" }}
+</p>
+<div class="card">
+  <p>Все связанные домашние задания и файлы будут удалены.</p>
+  <form method="post" class="form-actions">
+    {% csrf_token %}
+    <button type="submit" class="btn danger">Да, удалить</button>
+    <a href="{% url 'schedule' %}" class="btn ghost">Отмена</a>
+  </form>
+</div>
+{% endblock %}
