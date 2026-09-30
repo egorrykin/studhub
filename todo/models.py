@@ -21,43 +21,82 @@ SLOTS = [
 SLOT_MAP = {num: (start, end) for num, start, end in SLOTS}
 
 
-# ─── УРОВНИ ДРУГАЛЬКА ────────────────────────────────────────────
-# (min_score, level_num, level_name, emoji)
+# ═══════════════════════════════════════════════════════════════
+# УРОВНИ ДРУГАЛЬКА
+# ═══════════════════════════════════════════════════════════════
+# До 10 000 000 (24 уровень «Всемогущий» 👑) — фиксированные пороги.
+# После 10 000 000 — бесконечные уровни с шагом POST_MAX_STEP,
+# картинка/название остаются максимальными.
+#
+# Формат: (порог очков, название, эмодзи)
+
 CLICKER_LEVELS = [
-    (0,       1, 'Яйцо',              '🥚'),
-    (500,     2, 'Трещинка',          '🥚'),
-    (1500,    3, 'Вылупившийся',      '🐣'),
-    (3000,    4, 'Птенец',            '🐥'),
-    (5000,    5, 'Птенчик-крепкий',   '🐤'),
-    (8000,    6, 'Молодой',           '🐦'),
-    (12000,   7, 'Окрепший',          '🐦'),
-    (17000,   8, 'Водоплавающий',     '🦆'),
-    (23000,   9, 'Вольный',           '🦅'),
-    (30000,  10, 'Мудрый',            '🦉'),
-    (40000,  11, 'Проворный',         '🦊'),
-    (52000,  12, 'Хитрый',            '🦝'),
-    (66000,  13, 'Гордый',            '🦁'),
-    (82000,  14, 'Сильный',           '🐯'),
-    (100000, 15, 'Грозный',           '🐺'),
-    (120000, 16, 'Огненный',          '🐉'),
-    (150000, 17, 'Древний',           '🐉'),
-    (200000, 18, 'Легендарный',       '🐲'),
-    (300000, 19, 'Мифический',        '🌟'),
-    (500000, 20, 'Бессмертный',       '👑'),
+    (0,          'Яйцо',              '🥚'),
+    (500,        'Трещинка',          '🥚'),
+    (1500,       'Вылупившийся',      '🐣'),
+    (3000,       'Птенец',            '🐥'),
+    (5500,       'Птенчик-крепкий',   '🐤'),
+    (9000,       'Молодой',           '🐦'),
+    (14000,      'Окрепший',          '🐦'),
+    (21000,      'Водоплавающий',     '🦆'),
+    (31000,      'Вольный',           '🦅'),
+    (46000,      'Мудрый',            '🦉'),
+    (68000,      'Проворный',         '🦊'),
+    (100000,     'Хитрый',            '🦝'),
+    (150000,     'Гордый',            '🦁'),
+    (220000,     'Сильный',           '🐯'),
+    (320000,     'Грозный',           '🐺'),
+    (480000,     'Огненный',          '🔥'),
+    (720000,     'Дракончик',         '🐉'),
+    (1_100_000,  'Древний',           '🐉'),
+    (1_700_000,  'Легендарный',       '🐲'),
+    (2_500_000,  'Мифический',        '🦄'),
+    (3_700_000,  'Космический',       '🌌'),
+    (5_500_000,  'Божественный',      '✨'),
+    (8_000_000,  'Всесильный',        '🌟'),
+    (10_000_000, 'Всемогущий',        '👑'),
 ]
+
+# Шаг бесконечных уровней после достижения максимума
+POST_MAX_STEP = 5_000_000
 
 
 def get_clicker_level(score):
-    """Возвращает (level_num, level_name, emoji, current_score, next_threshold)."""
-    current = CLICKER_LEVELS[0]
-    next_threshold = None
-    for i, item in enumerate(CLICKER_LEVELS):
-        if score >= item[0]:
-            current = item
-            next_threshold = CLICKER_LEVELS[i + 1][0] if i + 1 < len(CLICKER_LEVELS) else None
+    """
+    Возвращает (level_num, name, emoji, next_threshold).
+
+    Уровни бесконечны. После 10 000 000 (24 уровень «Всемогущий»)
+    продолжаются уровни 25, 26, 27, ... с шагом +5 000 000.
+    Картинка и название остаются максимальными.
+    """
+    if score is None:
+        score = 0
+
+    # Находим текущий фиксированный уровень
+    current_index = 0
+    for i, (threshold, _, _) in enumerate(CLICKER_LEVELS):
+        if score >= threshold:
+            current_index = i
         else:
             break
-    return current[1], current[2], current[3], next_threshold
+
+    current = CLICKER_LEVELS[current_index]
+    level_num = current_index + 1
+    name, emoji = current[1], current[2]
+
+    # Достигли ли мы максимального фиксированного уровня?
+    if current_index == len(CLICKER_LEVELS) - 1:
+        last_threshold = current[0]  # 10M
+        diff = score - last_threshold
+        if diff >= 0:
+            extra_levels = diff // POST_MAX_STEP
+            level_num = len(CLICKER_LEVELS) + extra_levels
+            next_threshold = last_threshold + (extra_levels + 1) * POST_MAX_STEP
+            return (level_num, name, emoji, next_threshold)
+
+    # Обычный случай — следующий фиксированный порог
+    next_threshold = CLICKER_LEVELS[current_index + 1][0]
+    return (level_num, name, emoji, next_threshold)
 
 
 class Group(models.Model):
@@ -103,7 +142,6 @@ class Group(models.Model):
 
 
 class Subgroup(models.Model):
-    """Подгруппа внутри группы. Например, английский: 1-я / 2-я подгруппа."""
     group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='subgroups')
     name = models.CharField('Название', max_length=50)
 
@@ -118,7 +156,6 @@ class Subgroup(models.Model):
 
 
 class GroupTemplate(models.Model):
-    """Шаблон набора групп для быстрой привязки к паре."""
     name = models.CharField('Название шаблона', max_length=100, unique=True)
     groups = models.ManyToManyField(Group, related_name='templates', verbose_name='Группы')
     created_by = models.ForeignKey(
@@ -137,7 +174,6 @@ class GroupTemplate(models.Model):
 
 
 class LectureTemplate(models.Model):
-    """Шаблон пары: предмет + преподаватель + аудитория + тип."""
     subject = models.CharField('Предмет', max_length=200)
     teacher = models.CharField('Преподаватель', max_length=150, blank=True)
     room = models.CharField('Аудитория', max_length=50, blank=True)
@@ -164,13 +200,6 @@ class LectureTemplate(models.Model):
 
     def __str__(self):
         return f'{self.subject} — {self.teacher or "—"}'
-
-    @property
-    def label(self):
-        parts = [self.subject]
-        if self.teacher:
-            parts.append(self.teacher)
-        return ' · '.join(parts)
 
 
 class UserManager(BaseUserManager):
@@ -248,7 +277,6 @@ class User(AbstractBaseUser, PermissionsMixin):
             return False
         if not lecture.groups.filter(pk=self.group_id).exists():
             return False
-        # Если у пары указана подгруппа — проверяем и её
         if lecture.subgroup_name:
             if not self.subgroup_id:
                 return False
@@ -488,10 +516,8 @@ class ClickerProfile(models.Model):
     auto_per_sec = models.IntegerField('В секунду', default=0)
     last_tick = models.DateTimeField(default=timezone.now)
 
-    # ─── Античит ───
-    clicks_in_last_second = models.IntegerField(default=0)
-    last_click_second = models.DateTimeField(null=True, blank=True)
-    suspicious_score = models.BigIntegerField(default=0)  # сколько очков забанено
+    # Античит — сколько очков забанено (для статистики)
+    suspicious_score = models.BigIntegerField('Подозрительных очков', default=0)
 
     class Meta:
         verbose_name = 'Другальок'
@@ -537,16 +563,19 @@ class ClickerProfile(models.Model):
     @property
     def progress_percent(self):
         """Прогресс до следующего уровня, 0..100."""
-        if self.next_level_score is None:
+        lvl_num, _, _, next_threshold = get_clicker_level(self.score)
+        if next_threshold is None:
             return 100
-        lvl_num, _, _, _ = get_clicker_level(self.score)
-        # Находим текущий порог
-        cur_threshold = 0
-        for min_score, n, _, _ in CLICKER_LEVELS:
-            if n == lvl_num:
-                cur_threshold = min_score
-                break
-        span = self.next_level_score - cur_threshold
+
+        # Определяем порог текущего уровня
+        if lvl_num <= len(CLICKER_LEVELS):
+            cur_threshold = CLICKER_LEVELS[lvl_num - 1][0]
+        else:
+            # Бесконечные уровни после 10M
+            cur_threshold = (CLICKER_LEVELS[-1][0]
+                             + (lvl_num - len(CLICKER_LEVELS)) * POST_MAX_STEP)
+
+        span = next_threshold - cur_threshold
         if span <= 0:
             return 100
         done = self.score - cur_threshold

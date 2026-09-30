@@ -10,6 +10,13 @@ from rest_framework.response import Response
 from .models import ClickerProfile, Respect, User
 
 
+MAX_CLICKS_PER_BATCH = 150     # максимум в одном запросе
+MIN_INTERVAL_MS = 30           # быстрее 30ms — физически не человек
+HUMAN_MAX_MEAN_MS = 700        # быстрее этого — подозрительно
+CV_THRESHOLD_LONG = 0.15       # для длинных серий (>10 кликов)
+CV_THRESHOLD_SHORT = 0.05      # для коротких серий (6-9 кликов)
+
+
 def _profile(user):
     p, _ = ClickerProfile.objects.get_or_create(user=user)
     return p
@@ -32,39 +39,66 @@ def _serialize(p):
     }
 
 
-# ─── АНТИЧИТ ────────────────────────────────────────────────────
-MAX_CLICKS_PER_SECOND = 12       # человеческий предел ~12 кликов/сек
-MAX_CLICKS_PER_BATCH = 150       # максимум в одном запросе
-SUSPICIOUS_DROP_RATIO = 0.5      # если кликов больше лимита — половину в бан
+# ═══════════════════════════════════════════════════════════════
+# АНТИЧИТ: анализ интервалов между кликами
+# ═══════════════════════════════════════════════════════════════
 
-
-def _handle_clicks(p, raw_count):
+def _detect_autoclicker(timestamps):
     """
-    Возвращает (accepted, rejected) — сколько кликов зачтено и сколько отклонено.
-    Обновляет suspicious_score если обнаружен фрод.
+    Принимает список временных меток (в мс) кликов пользователя.
+    Возвращает True, если это похоже на автокликер.
+
+    Логика:
+      • Клики быстрее 30ms — физически невозможно
+      • Если средний интервал < 700ms И коэффициент вариации (stddev/mean)
+        очень маленький — интервалы подозрительно одинаковые → бот
+      • Для длинных серий (>10 кликов) порог CV мягче (0.15),
+        для коротких (6-9 кликов) — строже (0.05), чтобы не ловить случайность
     """
-    now = timezone.now()
+    if not timestamps or len(timestamps) < 6:
+        return False
 
-    # Обнуляем счётчик раз в секунду
-    if p.last_click_second is None or (now - p.last_click_second) > timedelta(seconds=1):
-        p.clicks_in_last_second = 0
-        p.last_click_second = now
+    # Ограничиваем выборку последними 50 метками
+    try:
+        ts = sorted(int(t) for t in timestamps)[-50:]
+    except (ValueError, TypeError):
+        return False
 
-    # Считаем, сколько кликов приходится на текущую секунду
-    elapsed = (now - p.last_click_second).total_seconds() if p.last_click_second else 0
-    # Грубая нормализация: не позволяем за секунду больше MAX_CLICKS_PER_SECOND
-    new_total = p.clicks_in_last_second + raw_count
-    if new_total > MAX_CLICKS_PER_SECOND:
-        accepted = max(0, MAX_CLICKS_PER_SECOND - p.clicks_in_last_second)
-        rejected = raw_count - accepted
-    else:
-        accepted = raw_count
-        rejected = 0
+    # Вычисляем интервалы
+    intervals = [ts[i + 1] - ts[i] for i in range(len(ts) - 1)]
+    intervals = [x for x in intervals if x > 0]
 
-    p.clicks_in_last_second = p.clicks_in_last_second + accepted
-    p.last_click_second = now
-    return accepted, rejected
+    if not intervals:
+        return False
 
+    mean = sum(intervals) / len(intervals)
+
+    # Слишком быстро физически
+    if mean < MIN_INTERVAL_MS:
+        return True
+
+    # Слишком медленно — это человек
+    if mean > 2000:
+        return False
+
+    # Стандартное отклонение
+    variance = sum((x - mean) ** 2 for x in intervals) / len(intervals)
+    stddev = variance ** 0.5
+
+    # Коэффициент вариации
+    cv = stddev / mean if mean > 0 else 0
+
+    # Длинные серии — основной анализ
+    if len(intervals) >= 10:
+        return cv < CV_THRESHOLD_LONG and mean < HUMAN_MAX_MEAN_MS
+
+    # Короткие серии — строгий порог, чтобы не забанить случайно
+    return cv < CV_THRESHOLD_SHORT and mean < 500
+
+
+# ═══════════════════════════════════════════════════════════════
+# API
+# ═══════════════════════════════════════════════════════════════
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -77,6 +111,11 @@ def clicker_state(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def clicker_click(request):
+    """
+    Принимает {count: N, timestamps: [ms, ms, ...]}.
+    Проверяет паттерн кликов и не засчитывает, если похоже на бота.
+    """
+    # ─── Парсим count ───
     try:
         count = int(request.data.get('count', 1) or 1)
     except (ValueError, TypeError):
@@ -86,22 +125,53 @@ def clicker_click(request):
     if count > MAX_CLICKS_PER_BATCH:
         count = MAX_CLICKS_PER_BATCH
 
+    # ─── Парсим timestamps ───
+    raw_ts = request.data.get('timestamps', [])
+    if not isinstance(raw_ts, list):
+        raw_ts = []
+    try:
+        timestamps = [int(t) for t in raw_ts][-MAX_CLICKS_PER_BATCH:]
+    except (ValueError, TypeError):
+        timestamps = []
+
+    # ─── Профиль ───
     p, _ = ClickerProfile.objects.get_or_create(user=request.user)
 
+    # Автоприрост
     now = timezone.now()
     delta = (now - p.last_tick).total_seconds()
     if delta > 3600:
         delta = 3600
     auto_gain = int(delta * p.auto_per_sec) if (delta > 0 and p.auto_per_sec > 0) else 0
 
-    accepted, rejected = _handle_clicks(p, count)
+    # ─── Античит ───
+    autoclicker_detected = False
+    if timestamps and len(timestamps) >= 6:
+        autoclicker_detected = _detect_autoclicker(timestamps)
+    elif count > 1 and not timestamps:
+        # Нет timestamps и count > 1 — подозрительно, но не блокируем
+        # (может быть, старый клиент). Засчитываем только 1.
+        p.suspicious_score += (count - 1) * p.per_click
+        count = 1
 
-    if rejected > 0:
-        # Записываем в бан — это "лишние" клики
-        p.suspicious_score += rejected * p.per_click
+    if autoclicker_detected:
+        # Отклоняем все ручные клики, но начисляем автокликер
+        p.suspicious_score += count * p.per_click
+        p.score += auto_gain
+        p.last_tick = now
+        p.save()
 
-    p.score += auto_gain + (p.per_click * accepted)
-    p.total_clicks += accepted
+        return Response({
+            'ok': True,
+            'accepted': 0,
+            'rejected': count,
+            'autoclicker_detected': True,
+            **_serialize(p),
+        })
+
+    # ─── Нормальный клик ───
+    p.score += auto_gain + (p.per_click * count)
+    p.total_clicks += count
     p.last_tick = now
     p.save()
 
@@ -110,8 +180,9 @@ def clicker_click(request):
 
     return Response({
         'ok': True,
-        'accepted': accepted,
-        'rejected': rejected,
+        'accepted': count,
+        'rejected': 0,
+        'autoclicker_detected': False,
         **_serialize(p),
     })
 
@@ -149,6 +220,8 @@ def clicker_upgrade_auto(request):
 
 
 def _build_leaderboard(user):
+    """Сортировка по score в БД — эквивалентна сортировке по уровню, т.к. уровни
+    монотонно зависят от очков."""
     if not user.group_id:
         return {'leaderboard': [], 'my_rank': None}
     profiles = list(
@@ -157,9 +230,8 @@ def _build_leaderboard(user):
         .only('id', 'score', 'user_id',
               'user__id', 'user__full_name', 'user__email')
         .filter(user__is_active=True, user__group_id=user.group_id)
+        .order_by('-score')[:50]
     )
-    # Сортировка по уровню, потом по score
-    profiles.sort(key=lambda p: (-p.level_num, -p.score))
     my_rank = None
     for i, pr in enumerate(profiles, 1):
         if pr.user_id == user.pk:
@@ -217,14 +289,12 @@ def clicker_state_and_leaderboard(request):
 def top_clicker(request):
     if not request.user.group_id:
         return Response({'has_top': False})
-    profiles = list(
-        ClickerProfile.objects
-        .select_related('user')
-        .filter(user__is_active=True, user__group_id=request.user.group_id)
-    )
-    profiles.sort(key=lambda p: (-p.level_num, -p.score))
-    p = profiles[0] if profiles and profiles[0].score > 0 else None
-    if not p:
+    p = (ClickerProfile.objects
+         .select_related('user')
+         .filter(user__is_active=True, user__group_id=request.user.group_id)
+         .order_by('-score')
+         .first())
+    if not p or p.score == 0:
         return Response({'has_top': False})
     return Response({
         'has_top': True,

@@ -133,10 +133,12 @@
 
     let serverScore = {{ profile.score }};
     let pendingClicks = 0;
+    let pendingTimestamps = [];   // временные метки кликов в этой пачке
     let isFlushing = false;
     let flushTimer = null;
     const FLUSH_INTERVAL_MS = 400;
     const POLL_INTERVAL_MS = 12000;
+    const MAX_BATCH = 150;
 
     async function api(url, method, body){
       const opts = {
@@ -197,13 +199,24 @@
     async function flushClicks(){
       if (pendingClicks <= 0 || isFlushing) return;
       isFlushing = true;
-      const batch = pendingClicks;
-      pendingClicks = 0;
+
+      // Отправляем порцию не больше MAX_BATCH
+      const batch = Math.min(pendingClicks, MAX_BATCH);
+      const batchTs = pendingTimestamps.slice(0, batch);
+
+      pendingClicks -= batch;
+      pendingTimestamps = pendingTimestamps.slice(batch);
+
       updatePendingHint();
+
       try {
-        const data = await api("{% url 'api_clicker_click' %}", 'POST', {count: batch});
+        const data = await api("{% url 'api_clicker_click' %}", 'POST', {
+          count: batch,
+          timestamps: batchTs,
+        });
         applyState(data);
       } catch (e) {
+        // При ошибке возвращаем count, но timestamps не восстанавливаем
         pendingClicks += batch;
         updatePendingHint();
       } finally {
@@ -219,6 +232,10 @@
 
     btnClick.addEventListener('click', () => {
       pendingClicks += 1;
+      pendingTimestamps.push(Date.now());
+      // Ограничиваем на случай, если юзер оооочень долго не отправлял (не бывает)
+      if (pendingTimestamps.length > 500) pendingTimestamps = pendingTimestamps.slice(-500);
+
       updateScoreDisplay();
       updatePendingHint();
       updateShopButtons();
@@ -262,16 +279,19 @@
       return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
     }
 
+    // Локальный автотик (визуальный)
     setInterval(() => {
       const rate = getAutoRate();
       if (rate > 0){ serverScore += rate; updateScoreDisplay(); updateShopButtons(); }
     }, 1000);
 
+    // Flush при уходе со страницы
     window.addEventListener('beforeunload', () => {
       if (pendingClicks > 0) {
         const fd = new FormData();
         fd.append('count', pendingClicks);
         fd.append('csrfmiddlewaretoken', csrf);
+        // Timestamps через sendBeacon передать сложно, шлём без них
         navigator.sendBeacon("{% url 'api_clicker_click' %}", fd);
       }
     });
