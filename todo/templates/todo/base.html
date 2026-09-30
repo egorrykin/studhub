@@ -75,7 +75,6 @@
           100%{transform:translateX(100%)}
         }
 
-        /* ─── Мягкое мерцание при обновлении контента ─── */
         #spa-main.spa-updating{
           opacity:.55;
           transition:opacity .15s var(--ease);
@@ -644,14 +643,14 @@
     // ═══════════════════════════════════════════════════════════════
     (function(){
       const SKIP_PATHS = [
-        /^\/admin/,          // django admin
-        /^\/logout/,          // выход
-        /^\/login/,           // логин (нужна полная перезагрузка из-за captcha)
+        /^\/admin/,
+        /^\/logout/,
+        /^\/login/,
         /^\/media\//,
         /^\/static\//,
       ];
       const SKIP_URLS = [
-        /^https?:\/\/(?!stud-hub)/i,   // внешние домены
+        /^https?:\/\/(?!stud-hub)/i,
         /^mailto:/, /^tel:/, /^#/,
         /^javascript:/, /^blob:/, /^data:/,
       ];
@@ -689,7 +688,7 @@
           oldMain.replaceWith(newMain);
         }
 
-        // Обновляем только сами навигации и заголовок страницы
+        // Обновляем навигации и title
         ['nav.tabs', 'nav.bottom-nav'].forEach(sel => {
           const oldNav = document.querySelector(sel);
           const newNav = doc.querySelector(sel);
@@ -699,18 +698,26 @@
         const newTitle = doc.querySelector('title');
         if (newTitle) document.title = newTitle.textContent;
 
+        // ─── Сохраняем позицию скролла ───
+        const prevPath = location.pathname;
+
         if (push){
-          history.pushState({ url: finalUrl }, '', finalUrl);
+          history.pushState({ url: finalUrl, scrollY: window.scrollY }, '', finalUrl);
         }
 
-        // Обновляем URL в Metrika (без перезагрузки)
+        // Metrika
         if (window.ym && typeof window.ym === 'function'){
           try { window.ym(113053880, 'hit', finalUrl, { title: document.title }); } catch(e){}
         }
 
-        window.scrollTo({ top: 0, behavior: 'instant' });
+        // Скроллим наверх ТОЛЬКО если перешли на другую страницу (pathname изменился).
+        // Если тот же pathname с другими query (?week=1, ?day=3) — позиция сохраняется.
+        const newUrl = new URL(finalUrl, location.origin);
+        if (newUrl.pathname !== prevPath){
+          window.scrollTo({ top: 0, behavior: 'instant' });
+        }
 
-        // Перезапускаем скрипты внутри нового main (важно для кликера)
+        // Перезапускаем скрипты внутри нового main (для кликера и т.п.)
         runScriptsIn(document.getElementById('spa-main'));
       }
 
@@ -730,7 +737,6 @@
       async function navigate(url, push){
         if (push === undefined) push = true;
 
-        // Если это та же страница с теми же параметрами — не грузим
         if (url === location.pathname + location.search && !push){
           return;
         }
@@ -751,10 +757,9 @@
             credentials: 'same-origin',
           });
 
-          if (myToken !== navigationToken) return; // нас отменил более новый запрос
+          if (myToken !== navigationToken) return;
 
           if (!response.ok){
-            // Ошибка — переходим по-старому
             window.location.href = url;
             return;
           }
@@ -772,10 +777,10 @@
         }
       }
 
-      // ─── Отправка формы POST/PUT через fetch ───
+      // ─── Отправка формы POST через fetch ───
       async function submitForm(form, event){
         const method = (form.getAttribute('method') || 'GET').toUpperCase();
-        if (method !== 'POST') return false; // GET-формы не перехватываем
+        if (method !== 'POST') return false;
 
         const action = form.getAttribute('action') || location.pathname + location.search;
         const url = new URL(action, location.href);
@@ -793,8 +798,6 @@
 
         try {
           const formData = new FormData(form);
-          // Явно указываем браузеру, что это AJAX — Django вернёт обычный HTML
-          // (не JSON), но нам это и нужно. Redirect Django обработает сам.
 
           const response = await fetch(url.toString(), {
             method: 'POST',
@@ -803,14 +806,13 @@
               'X-Requested-With': 'XMLHttpRequest',
             },
             credentials: 'same-origin',
-            redirect: 'follow',   // Django-редирект после POST выполнится автоматически
+            redirect: 'follow',
             signal: abortController.signal,
           });
 
           if (myToken !== navigationToken) return true;
 
           if (!response.ok && response.status >= 500){
-            // Серверная ошибка — перезагружаем полностью
             window.location.href = url.toString();
             return true;
           }
@@ -818,13 +820,10 @@
           const html = await response.text();
           if (myToken !== navigationToken) return true;
 
-          // response.url — это URL после редиректов (если были).
           const finalUrl = response.url || url.toString();
-
           applyHtml(html, finalUrl, true);
         } catch (e) {
           if (e.name !== 'AbortError'){
-            // Fallback — обычная отправка формы
             window.location.href = url.toString();
           }
         } finally {
@@ -836,7 +835,6 @@
 
       // ─── Перехват кликов по ссылкам ───
       document.addEventListener('click', function(e){
-        // Игнорируем клики с модификаторами / средней кнопкой
         if (e.defaultPrevented) return;
         if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
         if (e.button !== 0) return;
@@ -849,22 +847,19 @@
         if (a.target === '_blank') return;
         if (a.hasAttribute('download')) return;
         if (a.hasAttribute('data-no-spa')) return;
-
         if (shouldSkipHref(href)) return;
 
-        // ─── Ключевой фикс: resolve относительно location.href, не origin ───
-        // Так ?week=1 превратится в /schedule/?week=1, а не в /?week=1
+        // resolve относительно location.href — это ключевой фикс для ?week=1
         const url = new URL(href, location.href);
 
-        // Только тот же origin
         if (url.origin !== location.origin) return;
 
-        // Если это тот же URL с другим хэшем — не перехватываем
+        // тот же URL с другим хэшем — не перехватываем
         if (url.pathname === location.pathname
             && url.search === location.search
             && url.hash !== location.hash) return;
 
-        // Если URL полностью совпадает — ничего не делаем
+        // полностью совпадает — игнорим
         if (url.pathname === location.pathname && url.search === location.search) {
           e.preventDefault();
           return;
@@ -879,19 +874,23 @@
         const form = e.target;
         if (!(form instanceof HTMLFormElement)) return;
         if (e.defaultPrevented) return;
-
-        // Если на форме onsubmit с confirm и вернул false — форма всё равно не сабмитится,
-        // сюда мы не попадём. Если дошло — перехватываем.
         submitForm(form, e);
-      }, true); // capture=true, чтобы поймать раньше inline onsubmit
+      }, true);
 
       // ─── Назад/вперёд в браузере ───
       window.addEventListener('popstate', function(e){
         const url = (e.state && e.state.url) || (location.pathname + location.search);
-        navigate(url, false);
+        const savedScroll = e.state && e.state.scrollY;
+        navigate(url, false).then(() => {
+          if (typeof savedScroll === 'number'){
+            requestAnimationFrame(() => {
+              window.scrollTo({ top: savedScroll, behavior: 'instant' });
+            });
+          }
+        });
       });
 
-      history.replaceState({ url: location.pathname + location.search }, '', location.href);
+      history.replaceState({ url: location.pathname + location.search, scrollY: 0 }, '', location.href);
     })();
 </script>
 
