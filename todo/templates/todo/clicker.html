@@ -51,8 +51,8 @@
 
       <div class="level-progress">
         <div class="level-progress-text">
-          <span>Уровень <b id="level-num">{{ profile.level_num }}</b> · <span id="level-name">{{ profile.level_name }}</span></span>
-          <span id="level-next">до след.: {{ profile.next_level_score|default:"MAX" }}</span>
+          <span>Ур. <b id="level-num">{{ profile.level_num }}</b> · <span id="level-name">{{ profile.level_name }}</span></span>
+          <span id="level-next">{% if profile.next_level_score %}до след.: {{ profile.next_level_score }}{% else %}МАКС{% endif %}</span>
         </div>
         <div class="level-progress-bar">
           <div class="level-progress-fill" id="level-fill" style="width: {{ profile.progress_percent }}%"></div>
@@ -262,13 +262,11 @@
       return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
     }
 
-    // Локальный автотик (визуальный)
     setInterval(() => {
       const rate = getAutoRate();
       if (rate > 0){ serverScore += rate; updateScoreDisplay(); updateShopButtons(); }
     }, 1000);
 
-    // Flush при уходе
     window.addEventListener('beforeunload', () => {
       if (pendingClicks > 0) {
         const fd = new FormData();
