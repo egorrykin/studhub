@@ -30,7 +30,6 @@
           --lime:#c6ff00;
           --lime-dim:#9ecf00;
           --lime-glow:rgba(198,255,0,.22);
-          --violet:#a78bfa;
           --text:#f5f5f7;
           --muted:#8d8d92;
           --muted2:#5b5b62;
@@ -76,6 +75,12 @@
           100%{transform:translateX(100%)}
         }
 
+        /* ─── Мягкое мерцание при обновлении контента ─── */
+        #spa-main.spa-updating{
+          opacity:.55;
+          transition:opacity .15s var(--ease);
+        }
+
         header.top{
           padding:12px 28px;
           display:flex;align-items:center;justify-content:space-between;gap:18px;
@@ -94,7 +99,7 @@
         .logo-text .bot-line{font-size:9.5px;color:var(--muted);letter-spacing:1.5px;font-weight:700;text-transform:uppercase;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
         nav.tabs{display:flex;align-items:center;gap:2px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:16px;padding:4px;backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);box-shadow:0 1px 0 0 rgba(255,255,255,.05) inset,0 4px 20px rgba(0,0,0,.25);flex-wrap:wrap;max-width:100%}
         nav.tabs a.tab{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:12px;color:var(--muted);font-size:13px;font-weight:600;transition:all .18s var(--ease);text-decoration:none;white-space:nowrap}
-        nav.tabs a.tab .tab-icon{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .18s var(--ease)}
+        nav.tabs a.tab .tab-icon{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
         nav.tabs a.tab .tab-icon svg{width:16px;height:16px;display:block;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
         nav.tabs a.tab:hover{color:var(--text);background:rgba(255,255,255,.055);text-decoration:none}
         nav.tabs a.tab.active{background:linear-gradient(135deg, var(--lime), var(--lime-dim));color:#0a0a0a;font-weight:800}
@@ -234,7 +239,7 @@
         .lecture .info{color:var(--muted);font-size:13px;margin-top:5px}
         .lecture-actions{display:flex;gap:8px;flex-wrap:wrap}
         .lecture-top-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-        .type-badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:8px;font-size:10.5px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+        .type-badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:8px;font-size:10.5px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase}
         .type-badge-lecture{background:rgba(167,139,250,.18);color:#b794f6;border:1px solid rgba(167,139,250,.4)}
         .lecture.type-lecture::before{background:#a78bfa;box-shadow:0 0 16px rgba(167,139,250,.5)}
         .type-badge-practice{background:rgba(255,127,80,.16);color:#ff8e66;border:1px solid rgba(255,127,80,.4)}
@@ -361,20 +366,16 @@
           .login-box h1{font-size:20px}
           .login-box .sub{margin-bottom:10px;font-size:12.5px}
           .login-box .field{margin-bottom:10px}
-          .captcha-wrap{transform:scale(0.85);transform-origin:center top;margin-bottom:-12px}
         }
 
         .errorlist{list-style:none;color:var(--danger);font-size:13px;margin-top:7px;padding:0}
 
-        /* ─── Кликер ─── */
         .clicker-page{display:grid;grid-template-columns:1fr 340px;gap:24px;align-items:flex-start}
         @media (max-width:860px){.clicker-page{grid-template-columns:1fr}}
-
         .clicker-main{border-radius:22px;padding:36px 24px;display:flex;flex-direction:column;align-items:center;gap:20px;min-height:540px;background:radial-gradient(ellipse 500px 400px at 50% 40%, rgba(198,255,0,.08), transparent),var(--glass)}
         .clicker-score{font-size:46px;font-weight:900;letter-spacing:-1.8px;font-variant-numeric:tabular-nums;color:var(--lime);text-shadow:0 0 40px rgba(198,255,0,.35);line-height:1}
         .clicker-sub{color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
         .clicker-sub b{color:var(--text);font-weight:700}
-
         .friend{display:flex;flex-direction:column;align-items:center;gap:8px;background:transparent;border:none;cursor:pointer;padding:20px;font-family:inherit;color:var(--text);border-radius:50%;transition:transform .1s;user-select:none}
         .friend:hover{transform:scale(1.03)}
         .friend:active{transform:scale(.95)}
@@ -383,29 +384,10 @@
         .friend-level{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
         .clicker-hint{color:var(--muted);font-size:12px;text-align:center}
         .clicker-hint b{color:var(--text);font-weight:700}
-
-        /* ─── Прогресс-бар: центрируем ─── */
-        .level-progress{
-          width:100%;
-          max-width:280px;
-          margin:10px auto 0;
-          display:block;
-        }
-        .level-progress-bar{
-          height:6px;background:rgba(255,255,255,.06);border-radius:999px;overflow:hidden;
-          border:1px solid var(--border);margin-top:6px;
-        }
-        .level-progress-fill{
-          height:100%;background:linear-gradient(90deg, var(--lime-dim), var(--lime));
-          border-radius:999px;transition:width .4s var(--ease);
-          box-shadow:0 0 10px rgba(198,255,0,.4);
-        }
-        .level-progress-text{
-          display:flex;justify-content:space-between;align-items:baseline;
-          font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;
-          gap:10px;
-        }
-
+        .level-progress{width:100%;max-width:280px;margin:10px auto 0;display:block}
+        .level-progress-bar{height:6px;background:rgba(255,255,255,.06);border-radius:999px;overflow:hidden;border:1px solid var(--border);margin-top:6px}
+        .level-progress-fill{height:100%;background:linear-gradient(90deg, var(--lime-dim), var(--lime));border-radius:999px;transition:width .4s var(--ease);box-shadow:0 0 10px rgba(198,255,0,.4)}
+        .level-progress-text{display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;gap:10px}
         .clicker-side{display:flex;flex-direction:column;gap:16px}
         .clicker-shop,.clicker-leaderboard{border-radius:var(--radius);padding:22px}
         .clicker-shop h3,.clicker-leaderboard h3{font-size:11px;text-transform:uppercase;letter-spacing:1.6px;color:var(--lime);font-weight:800;margin-bottom:14px}
@@ -417,7 +399,6 @@
         .upgrade-name{font-weight:700;font-size:14px}
         .upgrade-desc{font-size:11.5px;color:var(--muted);margin-top:2px}
         .upgrade-cost{font-weight:800;color:var(--lime);font-size:14px;font-variant-numeric:tabular-nums;flex-shrink:0}
-
         .clicker-leaderboard ol{list-style:none;padding:0}
         .clicker-leaderboard li{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:11px;font-size:13.5px;margin-bottom:3px}
         .clicker-leaderboard li.me{background:rgba(198,255,0,.08);border:1px solid rgba(198,255,0,.25)}
@@ -489,7 +470,6 @@
           *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
         }
 
-        /* ─── Автозаполнение ─── */
         input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus,input:-webkit-autofill:active,
         textarea:-webkit-autofill,select:-webkit-autofill{
           -webkit-box-shadow:0 0 0 1000px #0d0d0d inset !important;
@@ -554,14 +534,13 @@
             <span class="uname">{{ user.full_name|default:user.email }}</span>
             <span class="urole {% if not user.can_edit %}student{% endif %}">{{ user.get_role_display }}</span>
         </div>
-        <form method="post" action="{% url 'logout' %}" style="display:inline">{% csrf_token %}
+        <form method="post" action="{% url 'logout' %}" data-no-spa style="display:inline">{% csrf_token %}
             <button type="submit" class="btn ghost small">Выйти</button>
         </form>
     </div>
     {% endif %}
 </header>
 
-{# ─── Нижняя навигация (мобильные) ─── #}
 {% if user.is_authenticated %}
 {% with url_name=request.resolver_match.url_name %}
 <nav class="bottom-nav">
@@ -605,15 +584,14 @@
 <audio id="friend-audio" src="{% static 'todo/friend.mp3' %}" preload="none"></audio>
 
 <script>
-    // ─── Пасхалка: тройной клик по лого ───
+    // ═══════════════ ПАСХАЛКА: тройной клик по лого ═══════════════
     (function(){
       const logo = document.querySelector('header.top a.logo');
       const overlay = document.getElementById('friend-overlay');
       const audio = document.getElementById('friend-audio');
       if (!logo || !overlay || !audio) return;
 
-      let clicks = 0;
-      let timer = null;
+      let clicks = 0, timer = null;
       const WINDOW_MS = 700;
 
       logo.addEventListener('click', function(e){
@@ -644,12 +622,11 @@
       });
     })();
 
-    // ─── Скрытие нижней навигации при скролле вниз ───
+    // ═══════════════ Скрытие нижней навигации при скролле ═══════════════
     (function(){
       const nav = document.querySelector('nav.bottom-nav');
       if (!nav) return;
-      let lastY = window.scrollY;
-      let ticking = false;
+      let lastY = window.scrollY, ticking = false;
       window.addEventListener('scroll', function(){
         if (ticking) return;
         ticking = true;
@@ -657,41 +634,112 @@
           const y = window.scrollY;
           if (y > 120 && y > lastY) nav.classList.add('hidden');
           else nav.classList.remove('hidden');
-          lastY = y;
-          ticking = false;
+          lastY = y; ticking = false;
         });
       }, { passive: true });
     })();
 
-    // ═══════════════════════════════════════════════════════════
-    // SPA-навигация: перехватываем внутренние ссылки и грузим через fetch
-    // ═══════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════
+    // SPA-навигация: ссылки + формы, без перезагрузки
+    // ═══════════════════════════════════════════════════════════════
     (function(){
-      const SKIP_PATTERNS = [
-        /^\/admin/,          // админка
-        /^\/logout/,         // выход
-        /^\/login/,          // логин (нужна полная перезагрузка)
-        /^\/media\//,        // медиа
-        /^\/static\//,       // статика
-        /^https?:\/\//,      // внешние
-        /^mailto:/, /^tel:/, /^#/, // специальные
+      const SKIP_PATHS = [
+        /^\/admin/,          // django admin
+        /^\/logout/,          // выход
+        /^\/login/,           // логин (нужна полная перезагрузка из-за captcha)
+        /^\/media\//,
+        /^\/static\//,
+      ];
+      const SKIP_URLS = [
+        /^https?:\/\/(?!stud-hub)/i,   // внешние домены
+        /^mailto:/, /^tel:/, /^#/,
+        /^javascript:/, /^blob:/, /^data:/,
       ];
 
-      function shouldSkip(url){
-        return SKIP_PATTERNS.some(re => re.test(url));
+      function shouldSkipPath(pathname){
+        return SKIP_PATHS.some(re => re.test(pathname));
+      }
+      function shouldSkipHref(href){
+        return SKIP_URLS.some(re => re.test(href));
       }
 
       const loader = document.getElementById('spa-loader');
+      const mainEl = document.getElementById('spa-main');
       let abortController = null;
+      let navigationToken = 0;
 
+      function setLoading(on){
+        if (!loader) return;
+        if (on) loader.classList.add('active');
+        else loader.classList.remove('active');
+        if (mainEl){
+          if (on) mainEl.classList.add('spa-updating');
+          else mainEl.classList.remove('spa-updating');
+        }
+      }
+
+      // ─── Применение HTML от сервера ───
+      function applyHtml(html, finalUrl, push){
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+
+        const newMain = doc.getElementById('spa-main');
+        const oldMain = document.getElementById('spa-main');
+        if (newMain && oldMain){
+          oldMain.replaceWith(newMain);
+        }
+
+        // Обновляем только сами навигации и заголовок страницы
+        ['nav.tabs', 'nav.bottom-nav'].forEach(sel => {
+          const oldNav = document.querySelector(sel);
+          const newNav = doc.querySelector(sel);
+          if (oldNav && newNav) oldNav.replaceWith(newNav);
+        });
+
+        const newTitle = doc.querySelector('title');
+        if (newTitle) document.title = newTitle.textContent;
+
+        if (push){
+          history.pushState({ url: finalUrl }, '', finalUrl);
+        }
+
+        // Обновляем URL в Metrika (без перезагрузки)
+        if (window.ym && typeof window.ym === 'function'){
+          try { window.ym(113053880, 'hit', finalUrl, { title: document.title }); } catch(e){}
+        }
+
+        window.scrollTo({ top: 0, behavior: 'instant' });
+
+        // Перезапускаем скрипты внутри нового main (важно для кликера)
+        runScriptsIn(document.getElementById('spa-main'));
+      }
+
+      function runScriptsIn(container){
+        if (!container) return;
+        container.querySelectorAll('script').forEach(oldScript => {
+          const s = document.createElement('script');
+          for (let i = 0; i < oldScript.attributes.length; i++){
+            s.setAttribute(oldScript.attributes[i].name, oldScript.attributes[i].value);
+          }
+          s.textContent = oldScript.textContent;
+          oldScript.replaceWith(s);
+        });
+      }
+
+      // ─── Навигация GET ───
       async function navigate(url, push){
         if (push === undefined) push = true;
 
-        // Отменяем предыдущий запрос, если ещё летит
+        // Если это та же страница с теми же параметрами — не грузим
+        if (url === location.pathname + location.search && !push){
+          return;
+        }
+
         if (abortController) abortController.abort();
         abortController = new AbortController();
+        const myToken = ++navigationToken;
 
-        if (loader) loader.classList.add('active');
+        setLoading(true);
 
         try {
           const response = await fetch(url, {
@@ -703,112 +751,146 @@
             credentials: 'same-origin',
           });
 
+          if (myToken !== navigationToken) return; // нас отменил более новый запрос
+
           if (!response.ok){
-            // Если редирект на login или ошибка — просто переходим по-старому
+            // Ошибка — переходим по-старому
             window.location.href = url;
             return;
           }
 
           const html = await response.text();
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(html, 'text/html');
+          if (myToken !== navigationToken) return;
 
-          // Меняем <main>
-          const newMain = doc.getElementById('spa-main');
-          const oldMain = document.getElementById('spa-main');
-          if (newMain && oldMain){
-            oldMain.replaceWith(newMain);
-          }
-
-          // Обновляем title
-          const newTitle = doc.querySelector('title');
-          if (newTitle) document.title = newTitle.textContent;
-
-          // Обновляем активные вкладки в шапке и нижнем меню
-          updateActiveTabs(doc, url);
-
-          if (push){
-            history.pushState({ url: url }, '', url);
-          }
-
-          // Прокрутка наверх
-          window.scrollTo({ top: 0, behavior: 'instant' });
-
-          // Перезапускаем скрипты внутри нового main
-          runScriptsIn(newMain || document.getElementById('spa-main'));
-
+          applyHtml(html, url, push);
         } catch (e) {
           if (e.name !== 'AbortError'){
-            // При любой ошибке — fallback на полную перезагрузку
             window.location.href = url;
           }
         } finally {
-          if (loader) loader.classList.remove('active');
+          if (myToken === navigationToken) setLoading(false);
         }
       }
 
-      function updateActiveTabs(doc, url){
-        // Определяем активный url_name по ссылке
-        let pathname = url.split('?')[0];
+      // ─── Отправка формы POST/PUT через fetch ───
+      async function submitForm(form, event){
+        const method = (form.getAttribute('method') || 'GET').toUpperCase();
+        if (method !== 'POST') return false; // GET-формы не перехватываем
 
-        // Обе навигации
-        ['nav.tabs', 'nav.bottom-nav'].forEach(sel => {
-          const oldNav = document.querySelector(sel);
-          const newNav = doc.querySelector(sel);
-          if (oldNav && newNav){
-            oldNav.replaceWith(newNav);
+        const action = form.getAttribute('action') || location.pathname + location.search;
+        const url = new URL(action, location.href);
+
+        if (shouldSkipPath(url.pathname)) return false;
+        if (form.hasAttribute('data-no-spa')) return false;
+
+        event.preventDefault();
+
+        if (abortController) abortController.abort();
+        abortController = new AbortController();
+        const myToken = ++navigationToken;
+
+        setLoading(true);
+
+        try {
+          const formData = new FormData(form);
+          // Явно указываем браузеру, что это AJAX — Django вернёт обычный HTML
+          // (не JSON), но нам это и нужно. Redirect Django обработает сам.
+
+          const response = await fetch(url.toString(), {
+            method: 'POST',
+            body: formData,
+            headers: {
+              'X-Requested-With': 'XMLHttpRequest',
+            },
+            credentials: 'same-origin',
+            redirect: 'follow',   // Django-редирект после POST выполнится автоматически
+            signal: abortController.signal,
+          });
+
+          if (myToken !== navigationToken) return true;
+
+          if (!response.ok && response.status >= 500){
+            // Серверная ошибка — перезагружаем полностью
+            window.location.href = url.toString();
+            return true;
           }
-        });
+
+          const html = await response.text();
+          if (myToken !== navigationToken) return true;
+
+          // response.url — это URL после редиректов (если были).
+          const finalUrl = response.url || url.toString();
+
+          applyHtml(html, finalUrl, true);
+        } catch (e) {
+          if (e.name !== 'AbortError'){
+            // Fallback — обычная отправка формы
+            window.location.href = url.toString();
+          }
+        } finally {
+          if (myToken === navigationToken) setLoading(false);
+        }
+
+        return true;
       }
 
-      function runScriptsIn(container){
-        if (!container) return;
-        container.querySelectorAll('script').forEach(oldScript => {
-          const s = document.createElement('script');
-          // Копируем атрибуты
-          for (let i = 0; i < oldScript.attributes.length; i++){
-            s.setAttribute(oldScript.attributes[i].name, oldScript.attributes[i].value);
-          }
-          s.textContent = oldScript.textContent;
-          oldScript.replaceWith(s);
-        });
-      }
-
-      // Перехват кликов
+      // ─── Перехват кликов по ссылкам ───
       document.addEventListener('click', function(e){
-        // Ищем ближайшую <a>
-        let a = e.target.closest('a');
+        // Игнорируем клики с модификаторами / средней кнопкой
+        if (e.defaultPrevented) return;
+        if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+        if (e.button !== 0) return;
+
+        const a = e.target.closest('a');
         if (!a) return;
 
         const href = a.getAttribute('href');
         if (!href) return;
         if (a.target === '_blank') return;
         if (a.hasAttribute('download')) return;
-        if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
-
-        if (shouldSkip(href)) return;
-
-        // Обрабатываем только ссылки того же origin
-        const url = new URL(href, location.origin);
-        if (url.origin !== location.origin) return;
-
-        // Ссылки-кнопки форм (submit) не трогаем
         if (a.hasAttribute('data-no-spa')) return;
 
-        e.preventDefault();
-        const finalUrl = url.pathname + url.search;
+        if (shouldSkipHref(href)) return;
 
-        // Если это ссылка на текущую страницу с другим ?week= или ?day= — тоже SPA
-        navigate(finalUrl, true);
+        // ─── Ключевой фикс: resolve относительно location.href, не origin ───
+        // Так ?week=1 превратится в /schedule/?week=1, а не в /?week=1
+        const url = new URL(href, location.href);
+
+        // Только тот же origin
+        if (url.origin !== location.origin) return;
+
+        // Если это тот же URL с другим хэшем — не перехватываем
+        if (url.pathname === location.pathname
+            && url.search === location.search
+            && url.hash !== location.hash) return;
+
+        // Если URL полностью совпадает — ничего не делаем
+        if (url.pathname === location.pathname && url.search === location.search) {
+          e.preventDefault();
+          return;
+        }
+
+        e.preventDefault();
+        navigate(url.pathname + url.search, true);
       }, false);
 
-      // Кнопка назад/вперёд
+      // ─── Перехват submit'ов форм ───
+      document.addEventListener('submit', function(e){
+        const form = e.target;
+        if (!(form instanceof HTMLFormElement)) return;
+        if (e.defaultPrevented) return;
+
+        // Если на форме onsubmit с confirm и вернул false — форма всё равно не сабмитится,
+        // сюда мы не попадём. Если дошло — перехватываем.
+        submitForm(form, e);
+      }, true); // capture=true, чтобы поймать раньше inline onsubmit
+
+      // ─── Назад/вперёд в браузере ───
       window.addEventListener('popstate', function(e){
-        const url = (e.state && e.state.url) || location.pathname + location.search;
+        const url = (e.state && e.state.url) || (location.pathname + location.search);
         navigate(url, false);
       });
 
-      // Сохраняем начальное состояние
       history.replaceState({ url: location.pathname + location.search }, '', location.href);
     })();
 </script>
