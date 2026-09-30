@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.core.cache import cache
 from django.db.models import Sum
 from django.utils import timezone
@@ -13,32 +15,55 @@ def _profile(user):
     return p
 
 
-def _group_leaderboard(user, limit=50):
-    if not user.group_id:
-        return []
-    return list(
-        ClickerProfile.objects
-        .select_related('user')
-        .only('id', 'score', 'level', 'user_id',
-              'user__id', 'user__full_name', 'user__email')
-        .filter(user__is_active=True, user__group_id=user.group_id)
-        .order_by('-score')[:limit]
-    )
-
-
-def _serialize_profile(p):
-    """Единый формат ответа для state и click."""
+def _serialize(p):
     return {
         'score': p.score,
         'per_click': p.per_click,
         'auto_per_sec': p.auto_per_sec,
-        'level': p.level,
-        'stage_name': p.stage[0],
-        'stage_emoji': p.stage[1],
+        'level': p.level_num,
+        'level_name': p.level_name,
+        'stage_name': p.level_name,
+        'stage_emoji': p.stage_emoji,
+        'next_level_score': p.next_level_score,
+        'progress_percent': p.progress_percent,
         'per_click_cost': p.per_click_cost,
         'auto_cost': p.auto_cost,
         'total_clicks': p.total_clicks,
     }
+
+
+# ─── АНТИЧИТ ────────────────────────────────────────────────────
+MAX_CLICKS_PER_SECOND = 12       # человеческий предел ~12 кликов/сек
+MAX_CLICKS_PER_BATCH = 150       # максимум в одном запросе
+SUSPICIOUS_DROP_RATIO = 0.5      # если кликов больше лимита — половину в бан
+
+
+def _handle_clicks(p, raw_count):
+    """
+    Возвращает (accepted, rejected) — сколько кликов зачтено и сколько отклонено.
+    Обновляет suspicious_score если обнаружен фрод.
+    """
+    now = timezone.now()
+
+    # Обнуляем счётчик раз в секунду
+    if p.last_click_second is None or (now - p.last_click_second) > timedelta(seconds=1):
+        p.clicks_in_last_second = 0
+        p.last_click_second = now
+
+    # Считаем, сколько кликов приходится на текущую секунду
+    elapsed = (now - p.last_click_second).total_seconds() if p.last_click_second else 0
+    # Грубая нормализация: не позволяем за секунду больше MAX_CLICKS_PER_SECOND
+    new_total = p.clicks_in_last_second + raw_count
+    if new_total > MAX_CLICKS_PER_SECOND:
+        accepted = max(0, MAX_CLICKS_PER_SECOND - p.clicks_in_last_second)
+        rejected = raw_count - accepted
+    else:
+        accepted = raw_count
+        rejected = 0
+
+    p.clicks_in_last_second = p.clicks_in_last_second + accepted
+    p.last_click_second = now
+    return accepted, rejected
 
 
 @api_view(['GET'])
@@ -46,55 +71,48 @@ def _serialize_profile(p):
 def clicker_state(request):
     p = _profile(request.user)
     p.apply_auto()
-    return Response(_serialize_profile(p))
+    return Response(_serialize(p))
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def clicker_click(request):
-    """
-    Принимает {count: N} — сколько кликов пользователь сделал за батч.
-    По умолчанию 1 (для обратной совместимости).
-
-    Всё обновление одним save() — быстро и без гонок.
-    """
-    # ─── Парсим count ──────────────────────────────────────────
     try:
         count = int(request.data.get('count', 1) or 1)
     except (ValueError, TypeError):
         count = 1
-
-    # Защита от абсурда: не более 200 кликов за один батч.
-    # Быстрее 200/500мс = 400 кликов в секунду — это уже античит.
     if count < 1:
         count = 1
-    if count > 200:
-        count = 200
+    if count > MAX_CLICKS_PER_BATCH:
+        count = MAX_CLICKS_PER_BATCH
 
-    # ─── Получаем профиль и применяем всё одним апдейтом ──────
     p, _ = ClickerProfile.objects.get_or_create(user=request.user)
 
     now = timezone.now()
     delta = (now - p.last_tick).total_seconds()
+    if delta > 3600:
+        delta = 3600
+    auto_gain = int(delta * p.auto_per_sec) if (delta > 0 and p.auto_per_sec > 0) else 0
 
-    # Очки от автокликера за прошедшее время
-    auto_gain = 0
-    if delta > 0 and p.auto_per_sec > 0:
-        auto_gain = int(delta * p.auto_per_sec)
+    accepted, rejected = _handle_clicks(p, count)
 
-    # Прибавляем автоклик + пачку ручных кликов
-    p.score += auto_gain + (p.per_click * count)
-    p.total_clicks += count
+    if rejected > 0:
+        # Записываем в бан — это "лишние" клики
+        p.suspicious_score += rejected * p.per_click
+
+    p.score += auto_gain + (p.per_click * accepted)
+    p.total_clicks += accepted
     p.last_tick = now
-    p._update_level()
     p.save()
 
-    # Сбрасываем кеш лидерборда, чтобы следующий poll увидел свежие данные
     cache.delete(f'lb:{p.user.group_id}:{p.user_id}')
+    cache.delete('clicker_top_site_v2')
 
     return Response({
         'ok': True,
-        **_serialize_profile(p),
+        'accepted': accepted,
+        'rejected': rejected,
+        **_serialize(p),
     })
 
 
@@ -110,12 +128,8 @@ def clicker_upgrade_click(request):
     p.per_click += 1
     p.save()
     cache.delete(f'lb:{p.user.group_id}:{p.user_id}')
-    return Response({
-        'ok': True,
-        'score': p.score,
-        'per_click': p.per_click,
-        'per_click_cost': p.per_click_cost,
-    })
+    cache.delete('clicker_top_site_v2')
+    return Response({'ok': True, **_serialize(p)})
 
 
 @api_view(['POST'])
@@ -130,16 +144,22 @@ def clicker_upgrade_auto(request):
     p.auto_per_sec += 1
     p.save()
     cache.delete(f'lb:{p.user.group_id}:{p.user_id}')
-    return Response({
-        'ok': True,
-        'score': p.score,
-        'auto_per_sec': p.auto_per_sec,
-        'auto_cost': p.auto_cost,
-    })
+    cache.delete('clicker_top_site_v2')
+    return Response({'ok': True, **_serialize(p)})
 
 
 def _build_leaderboard(user):
-    profiles = _group_leaderboard(user)
+    if not user.group_id:
+        return {'leaderboard': [], 'my_rank': None}
+    profiles = list(
+        ClickerProfile.objects
+        .select_related('user')
+        .only('id', 'score', 'user_id',
+              'user__id', 'user__full_name', 'user__email')
+        .filter(user__is_active=True, user__group_id=user.group_id)
+    )
+    # Сортировка по уровню, потом по score
+    profiles.sort(key=lambda p: (-p.level_num, -p.score))
     my_rank = None
     for i, pr in enumerate(profiles, 1):
         if pr.user_id == user.pk:
@@ -152,8 +172,9 @@ def _build_leaderboard(user):
                 'name': pr.user.short_name,
                 'full_name': pr.user.full_name or pr.user.email,
                 'score': pr.score,
-                'level': pr.level,
-                'stage_emoji': pr.stage[1],
+                'level': pr.level_num,
+                'level_name': pr.level_name,
+                'stage_emoji': pr.stage_emoji,
                 'is_me': pr.user_id == user.pk,
             }
             for i, pr in enumerate(profiles, 1)
@@ -178,19 +199,16 @@ def clicker_leaderboard(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def clicker_state_and_leaderboard(request):
-    """Объединённый эндпоинт: state + leaderboard за один запрос."""
     user = request.user
-
     p = _profile(user)
     p.apply_auto()
-    state = _serialize_profile(p)
+    state = _serialize(p)
 
     cache_key = f'lb:{user.group_id}:{user.pk}'
     lb = cache.get(cache_key)
     if not lb:
         lb = _build_leaderboard(user)
         cache.set(cache_key, lb, 5)
-
     return Response({**state, **lb})
 
 
@@ -199,20 +217,22 @@ def clicker_state_and_leaderboard(request):
 def top_clicker(request):
     if not request.user.group_id:
         return Response({'has_top': False})
-    p = (ClickerProfile.objects
-         .select_related('user')
-         .filter(user__is_active=True, user__group_id=request.user.group_id)
-         .order_by('-score')
-         .first())
-    if not p or p.score == 0:
+    profiles = list(
+        ClickerProfile.objects
+        .select_related('user')
+        .filter(user__is_active=True, user__group_id=request.user.group_id)
+    )
+    profiles.sort(key=lambda p: (-p.level_num, -p.score))
+    p = profiles[0] if profiles and profiles[0].score > 0 else None
+    if not p:
         return Response({'has_top': False})
     return Response({
         'has_top': True,
         'name': p.user.short_name,
         'score': p.score,
-        'level': p.level,
-        'stage_emoji': p.stage[1],
-        'stage_name': p.stage[0],
+        'level': p.level_num,
+        'stage_emoji': p.stage_emoji,
+        'stage_name': p.level_name,
     })
 
 

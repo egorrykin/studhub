@@ -1,0 +1,46 @@
+{% extends 'todo/base.html' %}
+{% block title %}Подгруппы · {{ user_group_name }}{% endblock %}
+{% block content %}
+
+<h1>Подгруппы</h1>
+<p class="sub">
+  Разделите группу на подгруппы (например, английский: 1-я / 2-я).
+  У подгруппы свои пары, свои преподы и свои аудитории.
+  Студенту можно назначить подгруппу при создании/редактировании.
+</p>
+
+<div class="card" style="max-width:640px;margin-bottom:32px">
+  <h2>Новая подгруппа</h2>
+  <form method="post">
+    {% csrf_token %}
+    {% for field in form %}
+    <div class="field">
+      <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+      {{ field }}
+      {% if field.errors %}<ul class="errorlist">{% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+    </div>
+    {% endfor %}
+    <div class="form-actions">
+      <button type="submit" class="btn">Добавить</button>
+      <a href="{% url 'schedule' %}" class="btn ghost">Отмена</a>
+    </div>
+  </form>
+</div>
+
+<h2>Подгруппы группы {{ user_group_name }}</h2>
+{% for sg in subgroups %}
+<div style="display:flex;align-items:center;gap:14px;background:var(--glass);border:1px solid var(--border);border-radius:var(--radius);padding:14px 22px;margin-bottom:8px">
+  <span style="font-weight:800;font-size:15px">{{ sg.name }}</span>
+  <span style="color:var(--muted);font-size:13px">
+      Участников: {{ sg.members.count }}
+    </span>
+  <form method="post" action="{% url 'subgroup_delete' sg.pk %}" style="margin-left:auto">
+    {% csrf_token %}
+    <button type="submit" class="btn danger small">Удалить</button>
+  </form>
+</div>
+{% empty %}
+<div class="empty"><span class="em-icon">◌</span>Подгрупп пока нет</div>
+{% endfor %}
+
+{% endblock %}

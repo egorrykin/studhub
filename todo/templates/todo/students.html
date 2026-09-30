@@ -5,9 +5,10 @@
 <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;margin-bottom:28px">
   <div>
     <h1>Студенты группы</h1>
-    <p class="sub" style="margin-bottom:0">Респекты, заметки и аккаунты</p>
+    <p class="sub" style="margin-bottom:0">Респекты, заметки, подгруппы и аккаунты</p>
   </div>
   <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <a href="{% url 'subgroups' %}" class="btn ghost">📂 Подгруппы</a>
     <a href="{% url 'student_create' %}" class="btn">+ Создать аккаунт</a>
   </div>
 </div>
@@ -18,6 +19,7 @@
     <div class="student-head">
       <span class="student-name">{{ s.full_name|default:s.email }}</span>
       <span class="student-role">{{ s.get_role_display }}</span>
+      {% if s.subgroup %}<span class="student-subgroup">{{ s.subgroup.name }}</span>{% endif %}
       <span class="student-respects {% if s.respect_total < 0 %}negative{% endif %}">
           {% if s.respect_total > 0 %}❤️ +{{ s.respect_total }}
           {% elif s.respect_total < 0 %}💢 {{ s.respect_total }}
@@ -29,24 +31,21 @@
       <form method="post" action="{% url 'add_respect' s.pk %}" class="respect-form">
         {% csrf_token %}
         <input type="hidden" name="value" value="1">
-        <input type="text" name="comment" maxlength="200"
-               placeholder="За что респект?"
-               class="respect-input">
-        <button type="submit" class="btn small">+1 Респект</button>
+        <input type="text" name="comment" maxlength="200" placeholder="За что респект?" class="respect-input">
+        <button type="submit" class="btn small">+1</button>
       </form>
-
       <form method="post" action="{% url 'add_respect' s.pk %}" class="respect-form">
         {% csrf_token %}
         <input type="hidden" name="value" value="-1">
-        <input type="text" name="comment" maxlength="200"
-               placeholder="За что пометка?"
-               class="respect-input">
-        <button type="submit" class="btn danger small">−1 Пометка</button>
+        <input type="text" name="comment" maxlength="200" placeholder="За что пометка?" class="respect-input">
+        <button type="submit" class="btn danger small">−1</button>
       </form>
+
+      <a href="{% url 'student_edit' s.pk %}" class="btn ghost small">✎ Изменить</a>
 
       {% if s.pk != my_pk and not s.is_superuser %}
       <form method="post" action="{% url 'student_delete' s.pk %}"
-            onsubmit="return confirm('Удалить аккаунт {{ s.email|escapejs }}? Действие необратимо.');"
+            onsubmit="return confirm('Удалить {{ s.email|escapejs }}?');"
             style="margin-left:auto">
         {% csrf_token %}
         <button type="submit" class="btn danger small">🗑 Удалить</button>

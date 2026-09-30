@@ -12,14 +12,14 @@
   {% if top_site %}
   <div class="site-record" style="margin-bottom:0;cursor:default">
     <span class="trophy">🏆</span>
-    <span class="site-record-avatar">{{ top_site.stage.1 }}</span>
+    <span class="site-record-avatar">{{ top_site.stage_emoji }}</span>
     <div class="site-record-info">
       <div class="site-record-name">{{ top_site.user.short_name }}</div>
       <div class="site-record-meta">
         <span class="site-record-group">
-          {% if top_site.user.group %}{{ top_site.user.group.name }}{% else %}Без группы{% endif %}
+          {% if top_site.user.group %}{{ top_site.user.group.name }}{% else %}—{% endif %}
         </span>
-        <span>{{ top_site.score }} очков · ур. {{ top_site.level }} · {{ top_site.stage.0 }}</span>
+        <span>ур. {{ top_site.level_num }} · {{ top_site.level_name }} · {{ top_site.score }} очков</span>
       </div>
     </div>
     <span class="site-record-label">🏆 Рекорд сайта</span>
@@ -29,10 +29,10 @@
   {% if top_group %}
   <a href="#leaderboard-group" class="top-player" style="margin-bottom:0">
     <span class="crown">👑</span>
-    <span class="top-player-avatar">{{ top_group.stage.1 }}</span>
+    <span class="top-player-avatar">{{ top_group.stage_emoji }}</span>
     <div class="top-player-info">
       <div class="top-player-name">{{ top_group.user.short_name }}</div>
-      <div class="top-player-score">{{ top_group.score }} очков · ур. {{ top_group.level }} · {{ top_group.stage.0 }}</div>
+      <div class="top-player-score">ур. {{ top_group.level_num }} · {{ top_group.level_name }} · {{ top_group.score }} очков</div>
     </div>
     <span class="top-player-label">Лидер группы</span>
   </a>
@@ -42,26 +42,35 @@
 
 <div class="clicker-page">
   <div class="clicker-main">
-    <div style="text-align:center">
+    <div style="text-align:center;width:100%">
       <div class="clicker-score" id="score">{{ profile.score }}</div>
       <div class="clicker-sub">
         очков · <b id="per-click">+{{ profile.per_click }}</b> за клик ·
         <b id="auto-rate">+{{ profile.auto_per_sec }}</b>/сек
+      </div>
+
+      <div class="level-progress">
+        <div class="level-progress-text">
+          <span>Уровень <b id="level-num">{{ profile.level_num }}</b> · <span id="level-name">{{ profile.level_name }}</span></span>
+          <span id="level-next">до след.: {{ profile.next_level_score|default:"MAX" }}</span>
+        </div>
+        <div class="level-progress-bar">
+          <div class="level-progress-fill" id="level-fill" style="width: {{ profile.progress_percent }}%"></div>
+        </div>
       </div>
     </div>
 
     <form onsubmit="return false;" style="display:flex;justify-content:center">
       {% csrf_token %}
       <button type="button" class="friend" id="friend">
-        <span class="friend-emoji" id="friend-emoji">{{ profile.stage.1 }}</span>
-        <span class="friend-name" id="friend-name">{{ profile.stage.0 }}</span>
-        <span class="friend-level" id="friend-level">ур. {{ profile.level }}</span>
+        <span class="friend-emoji" id="friend-emoji">{{ profile.stage_emoji }}</span>
+        <span class="friend-name" id="friend-name">{{ profile.level_name }}</span>
       </button>
     </form>
 
     <div class="clicker-hint">
       Всего кликов: <b id="total-clicks">{{ profile.total_clicks }}</b> ·
-      Место в группе: <b id="my-rank">— / —</b>
+      Место: <b id="my-rank">— / —</b>
       <span id="pending-hint" style="display:none;color:var(--lime);margin-left:6px"></span>
     </div>
   </div>
@@ -69,8 +78,7 @@
   <div class="clicker-side">
     <div class="clicker-shop">
       <h3>Улучшения</h3>
-      <button type="button" class="upgrade-btn" id="upgrade-click-btn"
-              data-cost="{{ profile.per_click_cost }}">
+      <button type="button" class="upgrade-btn" id="upgrade-click-btn" data-cost="{{ profile.per_click_cost }}">
         <span class="upgrade-icon">👆</span>
         <div class="upgrade-info">
           <div class="upgrade-name">Крепкий палец</div>
@@ -79,8 +87,7 @@
         <div class="upgrade-cost" id="cost-per-click">{{ profile.per_click_cost }}</div>
       </button>
 
-      <button type="button" class="upgrade-btn" id="upgrade-auto-btn"
-              data-cost="{{ profile.auto_cost }}">
+      <button type="button" class="upgrade-btn" id="upgrade-auto-btn" data-cost="{{ profile.auto_cost }}">
         <span class="upgrade-icon">⚡</span>
         <div class="upgrade-info">
           <div class="upgrade-name">Автокликер</div>
@@ -91,7 +98,7 @@
     </div>
 
     <div class="clicker-leaderboard" id="leaderboard-group">
-      <h3>Рейтинг группы</h3>
+      <h3>Рейтинг группы · по уровню</h3>
       <ol id="leaderboard">
         <li><span class="lb-rank">—</span><span class="lb-name">Загрузка...</span></li>
       </ol>
@@ -109,7 +116,10 @@
     const pendingHint = document.getElementById('pending-hint');
     const emojiEl = document.getElementById('friend-emoji');
     const nameEl = document.getElementById('friend-name');
-    const levelEl = document.getElementById('friend-level');
+    const levelNumEl = document.getElementById('level-num');
+    const levelNameEl = document.getElementById('level-name');
+    const levelNextEl = document.getElementById('level-next');
+    const levelFillEl = document.getElementById('level-fill');
     const shopPerClick = document.getElementById('shop-per-click');
     const shopAuto = document.getElementById('shop-auto');
     const costPerClick = document.getElementById('cost-per-click');
@@ -121,25 +131,19 @@
 
     const csrf = document.querySelector('[name=csrfmiddlewaretoken]').value;
 
-    // ─── Локальный стейт ──────────────────────────────────────
-    // score — то, что показываем пользователю (локально + сервер).
-    // serverScore — последнее подтверждённое значение с сервера.
-    // pendingClicks — сколько кликов ещё не отправлено на сервер.
-    let score = {{ profile.score }};
-    let serverScore = score;
+    let serverScore = {{ profile.score }};
     let pendingClicks = 0;
     let isFlushing = false;
     let flushTimer = null;
-
-    const FLUSH_INTERVAL_MS = 400;   // как часто отправляем батч
-    const POLL_INTERVAL_MS = 10000;  // как часто запрашиваем state+leaderboard
+    const FLUSH_INTERVAL_MS = 400;
+    const POLL_INTERVAL_MS = 12000;
 
     async function api(url, method, body){
       const opts = {
         method: method || 'GET',
         headers: {'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'},
       };
-      if (body) {
+      if (body){
         opts.headers['Content-Type'] = 'application/json';
         opts.body = JSON.stringify(body);
       }
@@ -149,28 +153,20 @@
       return data;
     }
 
-    function getPerClick(){
-      return parseInt(perClickEl.textContent.replace('+', ''), 10) || 1;
-    }
-
-    function getAutoRate(){
-      return parseInt(autoRateEl.textContent.replace('+', ''), 10) || 0;
-    }
+    function getPerClick(){ return parseInt(perClickEl.textContent.replace('+', ''), 10) || 1; }
+    function getAutoRate(){ return parseInt(autoRateEl.textContent.replace('+', ''), 10) || 0; }
 
     function updateScoreDisplay(){
-      // Показываем серверный score + локальные неотправленные клики
       scoreEl.textContent = serverScore + pendingClicks * getPerClick();
     }
-
     function updatePendingHint(){
-      if (pendingClicks > 0) {
-        pendingHint.textContent = '(+' + pendingClicks + ' в очереди)';
+      if (pendingClicks > 0){
+        pendingHint.textContent = '(+' + pendingClicks + ')';
         pendingHint.style.display = 'inline';
       } else {
         pendingHint.style.display = 'none';
       }
     }
-
     function updateShopButtons(){
       const current = serverScore + pendingClicks * getPerClick();
       btnUpClick.disabled = current < parseInt(costPerClick.textContent, 10);
@@ -178,26 +174,22 @@
     }
 
     function applyState(s){
-      if (s.score !== undefined) {
+      if (s.score !== undefined){
         serverScore = s.score;
-        // Если есть pending клики — они ещё в пути, показываем их сверху
-        score = serverScore + pendingClicks * getPerClick();
-        scoreEl.textContent = score;
+        scoreEl.textContent = serverScore + pendingClicks * getPerClick();
       }
-      if (s.per_click !== undefined) {
-        perClickEl.textContent = '+' + s.per_click;
-        shopPerClick.textContent = '+' + s.per_click;
-      }
-      if (s.auto_per_sec !== undefined) {
-        autoRateEl.textContent = '+' + s.auto_per_sec;
-        shopAuto.textContent = '+' + s.auto_per_sec;
-      }
-      if (s.level !== undefined) levelEl.textContent = 'ур. ' + s.level;
+      if (s.per_click !== undefined){ perClickEl.textContent = '+' + s.per_click; shopPerClick.textContent = '+' + s.per_click; }
+      if (s.auto_per_sec !== undefined){ autoRateEl.textContent = '+' + s.auto_per_sec; shopAuto.textContent = '+' + s.auto_per_sec; }
+      if (s.level !== undefined) levelNumEl.textContent = s.level;
+      if (s.level_name){ levelNameEl.textContent = s.level_name; nameEl.textContent = s.level_name; }
       if (s.stage_emoji) emojiEl.textContent = s.stage_emoji;
-      if (s.stage_name) nameEl.textContent = s.stage_name;
       if (s.total_clicks !== undefined) totalClicksEl.textContent = s.total_clicks;
       if (s.per_click_cost !== undefined) costPerClick.textContent = s.per_click_cost;
       if (s.auto_cost !== undefined) costAuto.textContent = s.auto_cost;
+      if (s.next_level_score !== undefined){
+        levelNextEl.textContent = s.next_level_score == null ? 'МАКС' : ('до след.: ' + s.next_level_score);
+      }
+      if (s.progress_percent !== undefined) levelFillEl.style.width = s.progress_percent + '%';
       updatePendingHint();
       updateShopButtons();
     }
@@ -205,39 +197,27 @@
     async function flushClicks(){
       if (pendingClicks <= 0 || isFlushing) return;
       isFlushing = true;
-      const batchCount = pendingClicks;
+      const batch = pendingClicks;
       pendingClicks = 0;
       updatePendingHint();
-
       try {
-        const data = await api("{% url 'api_clicker_click' %}", 'POST', {count: batchCount});
-        // Применяем ответ сервера
+        const data = await api("{% url 'api_clicker_click' %}", 'POST', {count: batch});
         applyState(data);
-        // Если во время flush прилетели новые клики — они уже в pendingClicks, ок
       } catch (e) {
-        // Если ошибка — вернём клики обратно в pending, чтобы не потерять
-        pendingClicks += batchCount;
+        pendingClicks += batch;
         updatePendingHint();
       } finally {
         isFlushing = false;
-        // Если после flush ещё остались pending — запускаем ещё один цикл
-        if (pendingClicks > 0) {
-          scheduleFlush();
-        }
+        if (pendingClicks > 0) scheduleFlush();
       }
     }
 
     function scheduleFlush(){
       if (flushTimer) return;
-      flushTimer = setTimeout(() => {
-        flushTimer = null;
-        flushClicks();
-      }, FLUSH_INTERVAL_MS);
+      flushTimer = setTimeout(() => { flushTimer = null; flushClicks(); }, FLUSH_INTERVAL_MS);
     }
 
-    // ─── Клик по питомцу ───────────────────────────────────────
     btnClick.addEventListener('click', () => {
-      // Мгновенный отклик — визуально ничего не ждёт
       pendingClicks += 1;
       updateScoreDisplay();
       updatePendingHint();
@@ -245,48 +225,22 @@
       scheduleFlush();
     });
 
-    // ─── Улучшения ─────────────────────────────────────────────
     btnUpClick.addEventListener('click', async () => {
-      // Сначала отправим всё накопленное, чтобы сервер знал актуальный score
-      if (pendingClicks > 0) {
-        clearTimeout(flushTimer);
-        flushTimer = null;
-        await flushClicks();
-        // Если после flush всё ещё pending (ошибка) — не идём дальше
-        if (pendingClicks > 0) return;
-      }
-      try {
-        const data = await api("{% url 'api_upgrade_click' %}", 'POST');
-        applyState(data);
-      } catch (e) {
-        if (e && e.error) alert(e.error);
-      }
+      if (pendingClicks > 0){ clearTimeout(flushTimer); flushTimer = null; await flushClicks(); if (pendingClicks > 0) return; }
+      try { applyState(await api("{% url 'api_upgrade_click' %}", 'POST')); }
+      catch (e) { if (e && e.error) alert(e.error); }
     });
-
     btnUpAuto.addEventListener('click', async () => {
-      if (pendingClicks > 0) {
-        clearTimeout(flushTimer);
-        flushTimer = null;
-        await flushClicks();
-        if (pendingClicks > 0) return;
-      }
-      try {
-        const data = await api("{% url 'api_upgrade_auto' %}", 'POST');
-        applyState(data);
-      } catch (e) {
-        if (e && e.error) alert(e.error);
-      }
+      if (pendingClicks > 0){ clearTimeout(flushTimer); flushTimer = null; await flushClicks(); if (pendingClicks > 0) return; }
+      try { applyState(await api("{% url 'api_upgrade_auto' %}", 'POST')); }
+      catch (e) { if (e && e.error) alert(e.error); }
     });
 
-    // ─── Polling state + leaderboard ───────────────────────────
     async function poll(){
-      // Не опрашиваем, если сейчас есть что отправлять — сначала flush
       if (pendingClicks > 0 || isFlushing) return;
-
       try {
         const data = await api("{% url 'api_state_lb' %}");
         applyState(data);
-
         const lb = data.leaderboard || [];
         lbEl.innerHTML = lb.map(p => {
           const cls = [];
@@ -296,6 +250,7 @@
           return `<li class="${cls.join(' ')}">
             <span class="lb-rank">${rank}</span>
             <span class="lb-name">${escapeHtml(p.name)}</span>
+            <span class="lb-level">${p.stage_emoji} ур.${p.level}</span>
             <span class="lb-score">${p.score}</span>
           </li>`;
         }).join('');
@@ -304,27 +259,18 @@
     }
 
     function escapeHtml(s){
-      return String(s).replace(/[&<>"']/g, c => ({
-        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-      })[c]);
+      return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
     }
 
-    // ─── Локальный автотик (визуальный) ────────────────────────
-    // Каждую секунду прибавляем auto_rate к serverScore.
-    // Реально сервер начислит то же самое, но чуть позже — мы показываем оптимистично.
+    // Локальный автотик (визуальный)
     setInterval(() => {
       const rate = getAutoRate();
-      if (rate > 0) {
-        serverScore += rate;
-        updateScoreDisplay();
-        updateShopButtons();
-      }
+      if (rate > 0){ serverScore += rate; updateScoreDisplay(); updateShopButtons(); }
     }, 1000);
 
-    // ─── Flush при уходе со страницы (чтобы не потерять клики) ─
+    // Flush при уходе
     window.addEventListener('beforeunload', () => {
       if (pendingClicks > 0) {
-        // sendBeacon сработает даже при закрытии вкладки
         const fd = new FormData();
         fd.append('count', pendingClicks);
         fd.append('csrfmiddlewaretoken', csrf);
@@ -332,7 +278,6 @@
       }
     });
 
-    // ─── Старт ─────────────────────────────────────────────────
     updateScoreDisplay();
     updateShopButtons();
     setInterval(poll, POLL_INTERVAL_MS);

@@ -2,7 +2,10 @@ from django import forms
 from django.contrib.auth.forms import AuthenticationForm
 from django.core.exceptions import ValidationError
 
-from .models import Lecture, Homework, Announcement, User, ImportantDay, Group, GroupTemplate
+from .models import (
+    Lecture, Homework, Announcement, User, ImportantDay,
+    Group, GroupTemplate, LectureTemplate, Subgroup,
+)
 from .utils import get_client_ip, verify_smartcaptcha
 
 
@@ -39,13 +42,10 @@ class EmailAuthenticationForm(AuthenticationForm):
     )
 
     def clean(self):
-        # Капча проверяется ДО аутентификации
         token = self.data.get('smart-token', '')
         ip = get_client_ip(self.request) if self.request else None
         if not verify_smartcaptcha(token, ip):
-            raise forms.ValidationError(
-                'Не пройдена проверка капчи. Попробуйте ещё раз.'
-            )
+            raise forms.ValidationError('Не пройдена проверка капчи. Попробуйте ещё раз.')
         return super().clean()
 
 
@@ -56,10 +56,19 @@ class LectureForm(forms.ModelForm):
         label='Группы на паре',
         required=True,
     )
+    subgroup_name = forms.CharField(
+        label='Подгруппа (необязательно)',
+        required=False,
+        max_length=50,
+        widget=forms.TextInput(attrs={
+            'placeholder': 'Оставьте пустым для всей группы',
+            'list': 'subgroup-suggestions',
+        }),
+    )
 
     class Meta:
         model = Lecture
-        fields = ['groups', 'subject', 'lecture_type', 'teacher', 'room']
+        fields = ['groups', 'subgroup_name', 'subject', 'lecture_type', 'teacher', 'room']
         widgets = {
             'subject': forms.TextInput(attrs={'placeholder': 'Название предмета'}),
             'teacher': forms.TextInput(attrs={'placeholder': 'Иванов И.И.'}),
@@ -71,6 +80,17 @@ class LectureForm(forms.ModelForm):
         if not groups:
             raise ValidationError('Выберите хотя бы одну группу')
         return groups
+
+
+class LectureTemplateForm(forms.ModelForm):
+    class Meta:
+        model = LectureTemplate
+        fields = ['subject', 'teacher', 'room', 'lecture_type']
+        widgets = {
+            'subject': forms.TextInput(attrs={'placeholder': 'Матанализ'}),
+            'teacher': forms.TextInput(attrs={'placeholder': 'Иванов И.И.'}),
+            'room': forms.TextInput(attrs={'placeholder': 'А-101'}),
+        }
 
 
 class ImportantDayForm(forms.ModelForm):
@@ -90,7 +110,7 @@ class ImportantDayForm(forms.ModelForm):
 
 class HomeworkForm(forms.ModelForm):
     files = MultipleFileField(
-        label='Прикрепить файлы и картинки (можно выбрать несколько)',
+        label='Прикрепить файлы и картинки',
         required=False,
     )
 
@@ -100,16 +120,13 @@ class HomeworkForm(forms.ModelForm):
         widgets = {
             'description': forms.Textarea(attrs={
                 'rows': 5,
-                'placeholder': 'Что задано (задача, параграф, ссылка и т.п.)',
+                'placeholder': 'Что задано (задача, параграф, ссылка)',
             }),
         }
 
 
 class MaterialForm(forms.Form):
-    files = MultipleFileField(
-        label='Файлы и картинки (можно выбрать несколько)',
-        required=True,
-    )
+    files = MultipleFileField(label='Файлы и картинки', required=True)
 
     def clean_files(self):
         files = self.cleaned_data.get('files') or []
@@ -119,10 +136,7 @@ class MaterialForm(forms.Form):
 
 
 class AnnouncementForm(forms.ModelForm):
-    images = MultipleFileField(
-        label='Картинки (можно выбрать несколько)',
-        required=False,
-    )
+    images = MultipleFileField(label='Картинки', required=False)
 
     class Meta:
         model = Announcement
@@ -164,6 +178,12 @@ class StudentCreateForm(forms.Form):
         label='ФИО', max_length=150,
         widget=forms.TextInput(attrs={'placeholder': 'Иванов Иван Иванович'}),
     )
+    subgroup = forms.ModelChoiceField(
+        label='Подгруппа (необязательно)',
+        queryset=Subgroup.objects.none(),
+        required=False,
+        empty_label='Без подгруппы',
+    )
     role = forms.ChoiceField(
         label='Роль',
         choices=[
@@ -178,9 +198,13 @@ class StudentCreateForm(forms.Form):
         widget=forms.PasswordInput(attrs={'placeholder': 'минимум 6 символов'}),
     )
     password_confirm = forms.CharField(
-        label='Повторите пароль',
-        widget=forms.PasswordInput(),
+        label='Повторите пароль', widget=forms.PasswordInput(),
     )
+
+    def __init__(self, *args, group=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if group:
+            self.fields['subgroup'].queryset = Subgroup.objects.filter(group=group)
 
     def clean_email(self):
         email = self.cleaned_data['email'].lower().strip()
@@ -195,6 +219,43 @@ class StudentCreateForm(forms.Form):
         if p1 and p2 and p1 != p2:
             raise ValidationError('Пароли не совпадают')
         return cleaned
+
+
+class StudentEditForm(forms.Form):
+    """Редактирование ученика без пароля."""
+    email = forms.EmailField(label='Email')
+    full_name = forms.CharField(label='ФИО', max_length=150)
+    subgroup = forms.ModelChoiceField(
+        label='Подгруппа',
+        queryset=Subgroup.objects.none(),
+        required=False,
+        empty_label='Без подгруппы',
+    )
+    role = forms.ChoiceField(
+        label='Роль',
+        choices=[
+            (User.Role.STUDENT, 'Студент'),
+            (User.Role.ZAM, 'Заместитель старосты'),
+            (User.Role.STAROSTA, 'Староста'),
+        ],
+    )
+
+    def __init__(self, *args, user=None, group=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user_obj = user
+        if group:
+            self.fields['subgroup'].queryset = Subgroup.objects.filter(group=group)
+        if user and not self.is_bound:
+            self.fields['email'].initial = user.email
+            self.fields['full_name'].initial = user.full_name
+            self.fields['role'].initial = user.role
+            self.fields['subgroup'].initial = user.subgroup
+
+    def clean_email(self):
+        email = self.cleaned_data['email'].lower().strip()
+        if User.objects.filter(email__iexact=email).exclude(pk=self.user_obj.pk).exists():
+            raise ValidationError('Пользователь с таким email уже существует')
+        return email
 
 
 class GroupTemplateForm(forms.ModelForm):
@@ -217,3 +278,10 @@ class GroupTemplateForm(forms.ModelForm):
         if GroupTemplate.objects.filter(name__iexact=name).exclude(pk=self.instance.pk).exists():
             raise ValidationError('Шаблон с таким именем уже есть')
         return name
+
+
+class SubgroupForm(forms.ModelForm):
+    class Meta:
+        model = Subgroup
+        fields = ['name']
+        widgets = {'name': forms.TextInput(attrs={'placeholder': 'Например: 1, 2, А, Б'})}

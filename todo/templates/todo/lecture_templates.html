@@ -1,0 +1,45 @@
+{% extends 'todo/base.html' %}
+{% block title %}Шаблоны пар · {{ site_name }}{% endblock %}
+{% block content %}
+
+<h1>Шаблоны пар</h1>
+<p class="sub">Предмет + преподаватель + аудитория. При создании пары можно выбрать шаблон — поля заполнятся автоматически.</p>
+
+<div class="card" style="max-width:720px;margin-bottom:32px">
+    <h2>Новый шаблон</h2>
+    <form method="post">
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="form-nonfield-errors">{% for e in form.non_field_errors %}{{ e }}{% endfor %}</div>{% endif %}
+        {% for field in form %}
+        <div class="field">
+            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.errors %}<ul class="errorlist">{% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+        </div>
+        {% endfor %}
+        <div class="form-actions">
+            <button type="submit" class="btn">Создать</button>
+            <a href="{% url 'templates_manage' %}" class="btn ghost">К шаблонам групп</a>
+        </div>
+    </form>
+</div>
+
+<h2>Существующие шаблоны</h2>
+{% for t in templates %}
+<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:var(--glass);border:1px solid var(--border);border-radius:var(--radius);padding:16px 22px;margin-bottom:10px">
+    <span class="type-badge type-badge-{{ t.lecture_type }}">{{ t.get_lecture_type_display }}</span>
+    <span style="font-weight:800;font-size:15px">{{ t.subject }}</span>
+    {% if t.teacher %}<span style="color:var(--muted);font-size:13px">{{ t.teacher }}</span>{% endif %}
+    {% if t.room %}<span style="color:var(--muted);font-size:13px">ауд. {{ t.room }}</span>{% endif %}
+    {% if user.is_superuser or t.created_by_id == user.pk %}
+    <form method="post" action="{% url 'lecture_template_delete' t.pk %}" style="margin-left:auto">
+        {% csrf_token %}
+        <button type="submit" class="btn danger small">🗑</button>
+    </form>
+    {% endif %}
+</div>
+{% empty %}
+<div class="empty"><span class="em-icon">◌</span>Шаблонов пока нет</div>
+{% endfor %}
+
+{% endblock %}

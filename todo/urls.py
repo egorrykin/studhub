@@ -21,37 +21,55 @@ urlpatterns = [
 
     path('qr/', views.QRScannerView.as_view(), name='qr_scanner'),
 
+    # пары
     path('lecture/new/', views.LectureCreateView.as_view(), name='lecture_create'),
     path('lecture/<int:pk>/edit/', views.LectureUpdateView.as_view(), name='lecture_update'),
     path('lecture/<int:pk>/delete/', views.LectureDeleteView.as_view(), name='lecture_delete'),
 
+    # шаблоны пар
+    path('lecture-templates/', views.LectureTemplatesView.as_view(), name='lecture_templates'),
+    path('lecture-templates/<int:pk>/delete/', views.LectureTemplateDeleteView.as_view(), name='lecture_template_delete'),
+
+    # подгруппы
+    path('subgroups/', views.SubgroupsView.as_view(), name='subgroups'),
+    path('subgroups/<int:pk>/delete/', views.SubgroupDeleteView.as_view(), name='subgroup_delete'),
+
+    # важные дни
     path('day/mark/', views.ImportantDayCreateView.as_view(), name='day_mark'),
     path('day/<int:pk>/unmark/', views.ImportantDayDeleteView.as_view(), name='day_unmark'),
 
     path('week/copy/', views.WeekCopyView.as_view(), name='week_copy'),
 
+    # шаблоны групп
     path('templates/', views.TemplatesManageView.as_view(), name='templates_manage'),
     path('templates/<int:pk>/delete/', views.TemplateDeleteView.as_view(), name='template_delete'),
 
+    # ДЗ
     path('lecture/<int:lecture_pk>/homework/new/', views.HomeworkCreateView.as_view(), name='homework_create'),
     path('homework/<int:pk>/edit/', views.HomeworkUpdateView.as_view(), name='homework_update'),
     path('attachment/<int:pk>/delete/', views.AttachmentDeleteView.as_view(), name='attachment_delete'),
 
+    # материалы
     path('lecture/<int:lecture_pk>/material/new/', views.MaterialCreateView.as_view(), name='material_create'),
     path('material/<int:pk>/delete/', views.MaterialDeleteView.as_view(), name='material_delete'),
 
+    # отметки
     path('lecture/<int:pk>/attend/', views.ToggleAttendanceView.as_view(), name='toggle_attendance'),
 
+    # объявления
     path('announcements/', views.AnnouncementListView.as_view(), name='announcements'),
     path('announcement/new/', views.AnnouncementCreateView.as_view(), name='announcement_create'),
     path('announcement/<int:pk>/edit/', views.AnnouncementUpdateView.as_view(), name='announcement_update'),
     path('announcement/<int:pk>/delete/', views.AnnouncementDeleteView.as_view(), name='announcement_delete'),
     path('announcement/image/<int:pk>/delete/', views.AnnouncementImageDeleteView.as_view(), name='announcement_image_delete'),
 
+    # другальок
     path('clicker/', views.ClickerView.as_view(), name='clicker'),
 
+    # студенты
     path('students/', views.StudentsView.as_view(), name='students'),
     path('students/new/', views.StudentCreateView.as_view(), name='student_create'),
+    path('students/<int:pk>/edit/', views.StudentEditView.as_view(), name='student_edit'),
     path('students/<int:pk>/delete/', views.StudentDeleteView.as_view(), name='student_delete'),
     path('students/<int:pk>/respect/add/', views.AddRespectView.as_view(), name='add_respect'),
     path('students/respect/<int:pk>/delete/', views.DeleteRespectView.as_view(), name='delete_respect'),

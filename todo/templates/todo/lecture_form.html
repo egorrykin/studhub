@@ -3,42 +3,18 @@
 {% block content %}
 
 <style>
-  .groups-grid{
-    display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
-    gap:8px;margin-top:8px;
-  }
-  .group-option{
-    display:flex;align-items:center;gap:10px;
-    padding:10px 14px;border-radius:12px;
-    background:rgba(255,255,255,.03);
-    border:1px solid var(--border);
-    cursor:pointer;transition:all .15s var(--ease);
-    font-size:13.5px;user-select:none;
-  }
+  .groups-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-top:8px}
+  .group-option{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid var(--border);cursor:pointer;transition:all .15s var(--ease);font-size:13.5px;user-select:none}
   .group-option:hover{border-color:var(--border-2);background:rgba(255,255,255,.06)}
   .group-option input{width:auto;margin:0;accent-color:var(--lime)}
-  .group-option:has(input:checked){
-    border-color:var(--lime);background:rgba(198,255,0,.08);
-    color:var(--lime);font-weight:700;
-  }
-  .templates-row{
-    display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;
-  }
-  .template-chip{
-    padding:6px 14px;border-radius:999px;
-    background:rgba(167,139,250,.12);
-    border:1px solid rgba(167,139,250,.4);
-    color:#b794f6;font-weight:700;font-size:12.5px;
-    cursor:pointer;transition:all .15s var(--ease);
-    font-family:inherit;
-  }
-  .template-chip:hover{
-    background:rgba(167,139,250,.22);
-    border-color:#a78bfa;transform:translateY(-1px);
-  }
-  .template-chip .count{
-    color:var(--muted);font-weight:600;font-size:11px;margin-left:6px;
-  }
+  .group-option:has(input:checked){border-color:var(--lime);background:rgba(198,255,0,.08);color:var(--lime);font-weight:700}
+  .templates-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .template-chip{padding:6px 14px;border-radius:999px;background:rgba(167,139,250,.12);border:1px solid rgba(167,139,250,.4);color:#b794f6;font-weight:700;font-size:12.5px;cursor:pointer;transition:all .15s var(--ease);font-family:inherit}
+  .template-chip:hover{background:rgba(167,139,250,.22);border-color:#a78bfa;transform:translateY(-1px)}
+  .template-chip .count{color:var(--muted);font-weight:600;font-size:11px;margin-left:6px}
+  .lt-templates-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .lt-chip{padding:6px 12px;border-radius:10px;background:rgba(45,212,191,.12);border:1px solid rgba(45,212,191,.4);color:#5eead4;font-weight:600;font-size:12px;cursor:pointer;transition:all .15s;font-family:inherit}
+  .lt-chip:hover{background:rgba(45,212,191,.2);border-color:#5eead4}
 </style>
 
 <h1>{% if object %}Изменить пару{% else %}Новая пара{% endif %}</h1>
@@ -46,7 +22,7 @@
   {{ lecture_date|date:"d.m.Y" }} · {{ slot }} пара · {{ slot_time }}
 </p>
 
-<form method="post" class="card" style="max-width:720px">
+<form method="post" class="card" style="max-width:720px" id="lecture-form">
   {% csrf_token %}
   {% if not object %}
   <input type="hidden" name="date" value="{{ lecture_date|date:'Y-m-d' }}">
@@ -54,28 +30,48 @@
   {% endif %}
 
   {% if form.non_field_errors %}
-  <div class="form-nonfield-errors">
-    {% for e in form.non_field_errors %}{{ e }}{% endfor %}
+  <div class="form-nonfield-errors">{% for e in form.non_field_errors %}{{ e }}{% endfor %}</div>
+  {% endif %}
+
+  {# ─── Шаблоны пар (предмет+препод) ─── #}
+  {% if lecture_templates %}
+  <div class="field">
+    <label>Быстрый шаблон пары</label>
+    <div class="lt-templates-row">
+      {% for t in lecture_templates %}
+      <button type="button" class="lt-chip"
+              data-subject="{{ t.subject|escapejs }}"
+              data-teacher="{{ t.teacher|escapejs }}"
+              data-room="{{ t.room|escapejs }}"
+              data-type="{{ t.lecture_type }}">
+        {{ t.subject }}{% if t.teacher %} · {{ t.teacher }}{% endif %}
+      </button>
+      {% endfor %}
+    </div>
+    <div style="margin-top:8px;font-size:12px;color:var(--muted)">
+      Нажмите на шаблон — поля заполнятся автоматически.
+      <a href="{% url 'lecture_templates' %}" style="margin-left:8px">Управлять шаблонами →</a>
+    </div>
+  </div>
+  {% else %}
+  <div class="field" style="font-size:12.5px;color:var(--muted)">
+    Шаблонов пар пока нет. <a href="{% url 'lecture_templates' %}">Создать шаблон →</a>
   </div>
   {% endif %}
 
   <div class="field">
     <label>Группы на паре</label>
-
-    {% if templates %}
+    {% if group_templates %}
     <div class="templates-row">
-        <span style="font-size:11px;color:var(--muted);text-transform:uppercase;
-                     letter-spacing:1.3px;font-weight:700;align-self:center;margin-right:4px">
-          Шаблоны:
-        </span>
-      {% for t in templates %}
-      <button type="button" class="template-chip" data-groups="{% for g in t.groups.all %}{{ g.pk }}{% if not forloop.last %},{% endif %}{% endfor %}">
+      <span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1.3px;font-weight:700;align-self:center;margin-right:4px">Шаблоны:</span>
+      {% for t in group_templates %}
+      <button type="button" class="template-chip"
+              data-groups="{% for g in t.groups.all %}{{ g.pk }}{% if not forloop.last %},{% endif %}{% endfor %}">
         {{ t.name }}<span class="count">{{ t.groups.count }}</span>
       </button>
       {% endfor %}
     </div>
     {% endif %}
-
     <div class="groups-grid" id="groups-grid">
       {% for choice in form.groups %}
       <label class="group-option" data-group-id="{{ choice.data.value }}">
@@ -84,10 +80,7 @@
       </label>
       {% endfor %}
     </div>
-
-    {% if form.groups.errors %}
-    <ul class="errorlist">{% for e in form.groups.errors %}<li>{{ e }}</li>{% endfor %}</ul>
-    {% endif %}
+    {% if form.groups.errors %}<ul class="errorlist">{% for e in form.groups.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
   </div>
 
   {% for field in form %}
@@ -100,6 +93,8 @@
   {% endif %}
   {% endfor %}
 
+  <datalist id="subgroup-suggestions"></datalist>
+
   <div class="form-actions">
     <button type="submit" class="btn">Сохранить</button>
     <a href="{% url 'schedule' %}" class="btn ghost">Отмена</a>
@@ -108,19 +103,31 @@
 
 <script>
   (function(){
+    // ─── Групповые шаблоны ───
     const grid = document.getElementById('groups-grid');
-    const chips = document.querySelectorAll('.template-chip');
-
-    chips.forEach(chip => {
+    document.querySelectorAll('.template-chip').forEach(chip => {
       chip.addEventListener('click', () => {
         const ids = (chip.dataset.groups || '').split(',').filter(Boolean);
-        // снять все
         grid.querySelectorAll('input[type=checkbox]').forEach(cb => cb.checked = false);
-        // отметить нужные
         ids.forEach(id => {
           const cb = grid.querySelector(`input[type=checkbox][value="${id}"]`);
           if (cb) cb.checked = true;
         });
+      });
+    });
+
+    // ─── Шаблоны пар ───
+    document.querySelectorAll('.lt-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const form = document.getElementById('lecture-form');
+        const subj = form.querySelector('[name=subject]');
+        const teach = form.querySelector('[name=teacher]');
+        const room = form.querySelector('[name=room]');
+        const type = form.querySelector('[name=lecture_type]');
+        if (subj) subj.value = chip.dataset.subject || '';
+        if (teach) teach.value = chip.dataset.teacher || '';
+        if (room) room.value = chip.dataset.room || '';
+        if (type && chip.dataset.type) type.value = chip.dataset.type;
       });
     });
   })();

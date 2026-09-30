@@ -21,17 +21,51 @@ SLOTS = [
 SLOT_MAP = {num: (start, end) for num, start, end in SLOTS}
 
 
+# ─── УРОВНИ ДРУГАЛЬКА ────────────────────────────────────────────
+# (min_score, level_num, level_name, emoji)
+CLICKER_LEVELS = [
+    (0,       1, 'Яйцо',              '🥚'),
+    (500,     2, 'Трещинка',          '🥚'),
+    (1500,    3, 'Вылупившийся',      '🐣'),
+    (3000,    4, 'Птенец',            '🐥'),
+    (5000,    5, 'Птенчик-крепкий',   '🐤'),
+    (8000,    6, 'Молодой',           '🐦'),
+    (12000,   7, 'Окрепший',          '🐦'),
+    (17000,   8, 'Водоплавающий',     '🦆'),
+    (23000,   9, 'Вольный',           '🦅'),
+    (30000,  10, 'Мудрый',            '🦉'),
+    (40000,  11, 'Проворный',         '🦊'),
+    (52000,  12, 'Хитрый',            '🦝'),
+    (66000,  13, 'Гордый',            '🦁'),
+    (82000,  14, 'Сильный',           '🐯'),
+    (100000, 15, 'Грозный',           '🐺'),
+    (120000, 16, 'Огненный',          '🐉'),
+    (150000, 17, 'Древний',           '🐉'),
+    (200000, 18, 'Легендарный',       '🐲'),
+    (300000, 19, 'Мифический',        '🌟'),
+    (500000, 20, 'Бессмертный',       '👑'),
+]
+
+
+def get_clicker_level(score):
+    """Возвращает (level_num, level_name, emoji, current_score, next_threshold)."""
+    current = CLICKER_LEVELS[0]
+    next_threshold = None
+    for i, item in enumerate(CLICKER_LEVELS):
+        if score >= item[0]:
+            current = item
+            next_threshold = CLICKER_LEVELS[i + 1][0] if i + 1 < len(CLICKER_LEVELS) else None
+        else:
+            break
+    return current[1], current[2], current[3], next_threshold
+
+
 class Group(models.Model):
     name = models.CharField('Название группы', max_length=50, unique=True)
-    is_locked = models.BooleanField(
-        'Закрыть доступ вручную',
-        default=False,
-        help_text='Если включено — студенты не увидят информацию группы'
-    )
+    is_locked = models.BooleanField('Закрыть доступ вручную', default=False)
     subscription_until = models.DateField(
-        'Подписка активна до',
-        null=True, blank=True,
-        help_text='Пусто = бессрочная подписка. Дата в прошлом = доступ закрыт.'
+        'Подписка активна до', null=True, blank=True,
+        help_text='Пусто = бессрочная. Дата в прошлом = доступ закрыт.'
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -45,26 +79,22 @@ class Group(models.Model):
 
     @property
     def subscription_active(self):
-        """True, если подписка не истекла. None = бессрочно."""
         if self.subscription_until is None:
             return True
         return self.subscription_until >= timezone.localdate()
 
     @property
     def subscription_days_left(self):
-        """Сколько дней осталось. None = бессрочно. Может быть отрицательным."""
         if self.subscription_until is None:
             return None
         return (self.subscription_until - timezone.localdate()).days
 
     @property
     def is_access_open(self):
-        """Полный доступ: не заблокировано вручную и подписка активна."""
         return (not self.is_locked) and self.subscription_active
 
     @property
     def access_block_reason(self):
-        """Причина блокировки: 'manual', 'subscription' или None."""
         if self.is_locked:
             return 'manual'
         if not self.subscription_active:
@@ -72,12 +102,25 @@ class Group(models.Model):
         return None
 
 
+class Subgroup(models.Model):
+    """Подгруппа внутри группы. Например, английский: 1-я / 2-я подгруппа."""
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='subgroups')
+    name = models.CharField('Название', max_length=50)
+
+    class Meta:
+        verbose_name = 'Подгруппа'
+        verbose_name_plural = 'Подгруппы'
+        ordering = ['group__name', 'name']
+        unique_together = ('group', 'name')
+
+    def __str__(self):
+        return f'{self.group.name} · {self.name}'
+
+
 class GroupTemplate(models.Model):
     """Шаблон набора групп для быстрой привязки к паре."""
     name = models.CharField('Название шаблона', max_length=100, unique=True)
-    groups = models.ManyToManyField(
-        Group, related_name='templates', verbose_name='Группы'
-    )
+    groups = models.ManyToManyField(Group, related_name='templates', verbose_name='Группы')
     created_by = models.ForeignKey(
         'User', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='group_templates'
@@ -91,6 +134,43 @@ class GroupTemplate(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class LectureTemplate(models.Model):
+    """Шаблон пары: предмет + преподаватель + аудитория + тип."""
+    subject = models.CharField('Предмет', max_length=200)
+    teacher = models.CharField('Преподаватель', max_length=150, blank=True)
+    room = models.CharField('Аудитория', max_length=50, blank=True)
+    lecture_type = models.CharField(
+        'Тип пары', max_length=20,
+        choices=[
+            ('lecture', 'Лекция'),
+            ('practice', 'Практика'),
+            ('lab', 'Лабораторная'),
+            ('meeting', 'Собрание'),
+        ],
+        default='lecture',
+    )
+    created_by = models.ForeignKey(
+        'User', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='lecture_templates'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Шаблон пары'
+        verbose_name_plural = 'Шаблоны пар'
+        ordering = ['subject', 'teacher']
+
+    def __str__(self):
+        return f'{self.subject} — {self.teacher or "—"}'
+
+    @property
+    def label(self):
+        parts = [self.subject]
+        if self.teacher:
+            parts.append(self.teacher)
+        return ' · '.join(parts)
 
 
 class UserManager(BaseUserManager):
@@ -121,6 +201,10 @@ class User(AbstractBaseUser, PermissionsMixin):
     group = models.ForeignKey(
         Group, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='members', verbose_name='Группа'
+    )
+    subgroup = models.ForeignKey(
+        Subgroup, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='members', verbose_name='Подгруппа'
     )
     role = models.CharField('Роль', max_length=20, choices=Role.choices, default=Role.STUDENT)
     is_active = models.BooleanField('Активен', default=True)
@@ -158,12 +242,19 @@ class User(AbstractBaseUser, PermissionsMixin):
         return agg['total'] or 0
 
     def can_access_lecture(self, lecture):
-        """Есть ли у юзера доступ к паре (одна из групп пары = его группа)."""
         if self.is_superuser:
             return True
         if not self.group_id:
             return False
-        return lecture.groups.filter(pk=self.group_id).exists()
+        if not lecture.groups.filter(pk=self.group_id).exists():
+            return False
+        # Если у пары указана подгруппа — проверяем и её
+        if lecture.subgroup_name:
+            if not self.subgroup_id:
+                return False
+            if self.subgroup.name != lecture.subgroup_name:
+                return False
+        return True
 
 
 class Lecture(models.Model):
@@ -173,8 +264,10 @@ class Lecture(models.Model):
         LAB = 'lab', 'Лабораторная'
         MEETING = 'meeting', 'Собрание'
 
-    groups = models.ManyToManyField(
-        Group, related_name='lectures', verbose_name='Группы'
+    groups = models.ManyToManyField(Group, related_name='lectures', verbose_name='Группы')
+    subgroup_name = models.CharField(
+        'Подгруппа', max_length=50, blank=True, default='',
+        help_text='Пусто = вся группа. Иначе — только для подгруппы с этим именем.'
     )
     subject = models.CharField('Предмет', max_length=200)
     lecture_type = models.CharField(
@@ -212,10 +305,7 @@ class Lecture(models.Model):
 
 
 class ImportantDay(models.Model):
-    group = models.ForeignKey(
-        Group, on_delete=models.CASCADE, related_name='important_days',
-        verbose_name='Группа'
-    )
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='important_days')
     date = models.DateField('Дата')
     title = models.CharField('Что за событие', max_length=200)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -231,7 +321,7 @@ class ImportantDay(models.Model):
 
 
 class Homework(models.Model):
-    lecture = models.ForeignKey(Lecture, on_delete=models.CASCADE, related_name='homeworks', verbose_name='Пара')
+    lecture = models.ForeignKey(Lecture, on_delete=models.CASCADE, related_name='homeworks')
     description = models.TextField('Что задано')
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -267,10 +357,7 @@ class Attachment(models.Model):
 
 
 class LectureMaterial(models.Model):
-    lecture = models.ForeignKey(
-        Lecture, on_delete=models.CASCADE, related_name='materials',
-        verbose_name='Пара'
-    )
+    lecture = models.ForeignKey(Lecture, on_delete=models.CASCADE, related_name='materials')
     title = models.CharField('Название', max_length=200)
     file = models.FileField('Файл', upload_to='materials/%Y/%m/')
     file_size = models.BigIntegerField(default=0)
@@ -298,14 +385,8 @@ class LectureMaterial(models.Model):
 
 
 class Attendance(models.Model):
-    student = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name='attendances',
-        verbose_name='Студент'
-    )
-    lecture = models.ForeignKey(
-        Lecture, on_delete=models.CASCADE, related_name='attendances',
-        verbose_name='Пара'
-    )
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='attendances')
+    lecture = models.ForeignKey(Lecture, on_delete=models.CASCADE, related_name='attendances')
     marked_at = models.DateTimeField('Отмечено', auto_now_add=True)
 
     class Meta:
@@ -321,11 +402,11 @@ class Attendance(models.Model):
 class Announcement(models.Model):
     group = models.ForeignKey(
         Group, on_delete=models.CASCADE, related_name='announcements',
-        verbose_name='Группа', null=True, blank=True
+        null=True, blank=True
     )
     author = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True,
-        related_name='announcements', verbose_name='Автор'
+        related_name='announcements'
     )
     title = models.CharField('Заголовок', max_length=200)
     text = models.TextField('Текст')
@@ -377,13 +458,10 @@ class Respect(models.Model):
         PLUS = 1, '+1 респект'
         MINUS = -1, '−1 пометка'
 
-    student = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name='respects',
-        verbose_name='Студент'
-    )
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='respects')
     author = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True,
-        related_name='given_respects', verbose_name='Автор'
+        related_name='given_respects'
     )
     value = models.IntegerField('Значение', choices=Value.choices, default=Value.PLUS)
     comment = models.CharField('За что', max_length=200, blank=True)
@@ -395,8 +473,7 @@ class Respect(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        sign = '+' if self.value > 0 else ''
-        return f'{sign}{self.value} → {self.student}'
+        return f'{self.value} → {self.student}'
 
     @property
     def is_plus(self):
@@ -409,8 +486,12 @@ class ClickerProfile(models.Model):
     total_clicks = models.BigIntegerField('Всего кликов', default=0)
     per_click = models.IntegerField('За клик', default=1)
     auto_per_sec = models.IntegerField('В секунду', default=0)
-    level = models.IntegerField('Уровень', default=1)
     last_tick = models.DateTimeField(default=timezone.now)
+
+    # ─── Античит ───
+    clicks_in_last_second = models.IntegerField(default=0)
+    last_click_second = models.DateTimeField(null=True, blank=True)
+    suspicious_score = models.BigIntegerField(default=0)  # сколько очков забанено
 
     class Meta:
         verbose_name = 'Другальок'
@@ -423,16 +504,53 @@ class ClickerProfile(models.Model):
     def apply_auto(self):
         now = timezone.now()
         delta = (now - self.last_tick).total_seconds()
+        # Ограничиваем: если профиль не трогали больше часа — начисляем максимум за час
+        if delta > 3600:
+            delta = 3600
         if delta > 0 and self.auto_per_sec > 0:
             self.score += int(delta * self.auto_per_sec)
         self.last_tick = now
-        self._update_level()
         self.save()
 
-    def _update_level(self):
-        new_level = 1 + self.score // 1000
-        if new_level > self.level:
-            self.level = new_level
+    # ─── Свойства уровня ───
+    @property
+    def level_num(self):
+        return get_clicker_level(self.score)[0]
+
+    @property
+    def level_name(self):
+        return get_clicker_level(self.score)[1]
+
+    @property
+    def stage_emoji(self):
+        return get_clicker_level(self.score)[2]
+
+    @property
+    def next_level_score(self):
+        return get_clicker_level(self.score)[3]
+
+    @property
+    def stage(self):
+        """Обратная совместимость — (name, emoji)."""
+        return (self.level_name, self.stage_emoji)
+
+    @property
+    def progress_percent(self):
+        """Прогресс до следующего уровня, 0..100."""
+        if self.next_level_score is None:
+            return 100
+        lvl_num, _, _, _ = get_clicker_level(self.score)
+        # Находим текущий порог
+        cur_threshold = 0
+        for min_score, n, _, _ in CLICKER_LEVELS:
+            if n == lvl_num:
+                cur_threshold = min_score
+                break
+        span = self.next_level_score - cur_threshold
+        if span <= 0:
+            return 100
+        done = self.score - cur_threshold
+        return max(0, min(100, int(done * 100 / span)))
 
     @property
     def per_click_cost(self):
@@ -443,18 +561,6 @@ class ClickerProfile(models.Model):
         if self.auto_per_sec == 0:
             return 100
         return int(100 * (1.8 ** self.auto_per_sec))
-
-    @property
-    def stage(self):
-        lvl = self.level
-        if lvl >= 31: return ('Древний', '🐉')
-        if lvl >= 21: return ('Мудрый', '🦉')
-        if lvl >= 16: return ('Вольный', '🦅')
-        if lvl >= 11: return ('Водоплавающий', '🦆')
-        if lvl >= 8:  return ('Окрепший', '🐤')
-        if lvl >= 5:  return ('Птенец', '🐥')
-        if lvl >= 3:  return ('Вылупившийся', '🐣')
-        return ('Яйцо', '🥚')
 
 
 @receiver(post_save, sender=User)

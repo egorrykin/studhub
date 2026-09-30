@@ -3,6 +3,17 @@
 {% block title %}Новый студент · {{ user_group_name }}{% endblock %}
 {% block content %}
 
+<style>
+  .captcha-wrap{display:flex;justify-content:center;align-items:center;width:100%;max-width:100%;overflow:hidden;margin-top:8px}
+  .captcha-wrap .smart-captcha{max-width:100%}
+  .captcha-wrap iframe{max-width:100%}
+  .captcha-note{display:flex;align-items:flex-start;gap:10px;margin-top:12px;padding:12px 14px;border-radius:12px;background:rgba(255,184,77,.08);border:1px solid rgba(255,184,77,.32);color:#ffb84d;font-size:12.5px;line-height:1.5}
+  .captcha-note .icon{font-size:16px;line-height:1;flex-shrink:0;margin-top:1px}
+  .captcha-note b{color:#ffd27a;font-weight:800}
+  @media (max-width:520px){.captcha-wrap{transform:scale(0.88);transform-origin:center center;margin-bottom:-8px}}
+  @media (max-width:400px){.captcha-wrap{transform:scale(0.78);margin-bottom:-16px}}
+</style>
+
 <h1>Новый аккаунт</h1>
 <p class="sub">
   Аккаунт будет привязан к группе <b style="color:var(--lime)">{{ user_group_name }}</b>.
@@ -13,9 +24,7 @@
   {% csrf_token %}
 
   {% if form.non_field_errors %}
-  <div class="form-nonfield-errors">
-    {% for e in form.non_field_errors %}{{ e }}{% endfor %}
-  </div>
+  <div class="form-nonfield-errors">{% for e in form.non_field_errors %}{{ e }}{% endfor %}</div>
   {% endif %}
 
   {% for field in form %}
@@ -26,16 +35,18 @@
   </div>
   {% endfor %}
 
-  {# ─── Yandex SmartCaptcha ─── #}
   <div class="field">
     <label>Подтвердите, что вы не робот</label>
-    <div
-            id="captcha-container"
-            class="smart-captcha"
-            data-sitekey="{{ YANDEX_SMARTCAPTCHA_CLIENT_KEY }}"
-            data-callback="onCaptchaSuccess"
-            style="height: 100px; margin-top: 8px;"
-    ></div>
+    <div class="captcha-wrap">
+      <div id="captcha-container" class="smart-captcha"
+           data-sitekey="{{ YANDEX_SMARTCAPTCHA_CLIENT_KEY }}"
+           data-callback="onCaptchaSuccess"
+           style="height: 100px;"></div>
+    </div>
+    <div class="captcha-note">
+      <span class="icon">⚠️</span>
+      <span>Капча работает <b>только без VPN</b> и прокси. Если не грузится — отключите VPN и обновите страницу.</span>
+    </div>
   </div>
 
   <div class="form-actions">
@@ -46,52 +57,20 @@
 
 <script src="https://smartcaptcha.yandexcloud.net/captcha.js" defer></script>
 <script>
-  // Колбэк, который вызывает SmartCaptcha после успешного прохождения
-  function onCaptchaSuccess(token) {
+  function onCaptchaSuccess(token){
     var btn = document.getElementById('submit-btn');
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = 'Создать аккаунт';
-    }
+    if (btn){ btn.disabled = false; btn.textContent = 'Создать аккаунт'; }
   }
-
-  // Дополнительная защита: если капча сбросилась (токен истёк) — снова блокируем
-  function onCaptchaTokenExpired() {
-    var btn = document.getElementById('submit-btn');
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = 'Пройдите капчу';
-    }
-  }
-
   (function(){
     var form = document.getElementById('student-form');
     var btn = document.getElementById('submit-btn');
-
-    // Не даём отправить форму, если кнопка была разблокирована вручную через DevTools
     form.addEventListener('submit', function(e){
-      var tokenInput = form.querySelector('input[name="smart-token"]');
-      if (!tokenInput || !tokenInput.value) {
+      var t = form.querySelector('input[name="smart-token"]');
+      if (!t || !t.value){
         e.preventDefault();
-        alert('Пожалуйста, пройдите проверку капчи');
-        if (btn) {
-          btn.disabled = true;
-          btn.textContent = 'Пройдите капчу';
-        }
+        if (btn){ btn.disabled = true; btn.textContent = 'Пройдите капчу'; }
       }
     });
-
-    // Страховка: если капча не загрузилась за 8 секунд — не блокируем пользователя навсегда
-    setTimeout(function(){
-      if (btn && btn.disabled) {
-        var tokenInput = form.querySelector('input[name="smart-token"]');
-        if (!tokenInput || !tokenInput.value) {
-          // Если капча так и не загрузилась — оставляем кнопку заблокированной,
-          // но показываем подсказку
-          console.warn('SmartCaptcha не загрузилась за 8 секунд');
-        }
-      }
-    }, 8000);
   })();
 </script>
 

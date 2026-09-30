@@ -7,12 +7,10 @@
   {% if access_block_reason == 'subscription' %}
   <span class="em-icon">⏱</span>
   <b>Подписка группы истекла</b>
-  <p style="margin-top:10px;font-size:13px">
-    Доступ к расписанию закрыт. Обратитесь к администратору для продления подписки.
-  </p>
+  <p style="margin-top:10px;font-size:13px">Обратитесь к администратору</p>
   {% else %}
   <span class="em-icon">🔒</span>
-  <b>Доступ к информации группы закрыт</b>
+  <b>Доступ закрыт</b>
   <p style="margin-top:10px;font-size:13px">Обратитесь к администратору</p>
   {% endif %}
 </div>
@@ -22,7 +20,6 @@
 <div class="empty" style="margin-bottom:24px">
   <span class="em-icon">⚠️</span>
   <b>Вы не привязаны к группе</b>
-  <p style="margin-top:10px;font-size:13px">Обратитесь к администратору, чтобы вас добавили в группу</p>
 </div>
 {% endif %}
 
@@ -30,13 +27,9 @@
 <div style="display:flex;align-items:center;gap:14px;padding:14px 20px;margin-bottom:20px;border-radius:14px;background:rgba(255,184,77,.10);border:1px solid rgba(255,184,77,.4);color:#ffb84d;font-size:13.5px">
   <span style="font-size:20px">⏱</span>
   <div>
-    {% if subscription_days_left < 0 %}
-    <b>Подписка истекла</b> — доступ у студентов закрыт. Срочно продлите.
-    {% elif subscription_days_left == 0 %}
-    <b>Подписка истекает сегодня</b> — продлите, пока доступ не закрылся.
-    {% else %}
-    <b>Подписка истекает через {{ subscription_days_left }} дн.</b> — обратитесь к администратору для продления.
-    {% endif %}
+    {% if subscription_days_left < 0 %}<b>Подписка истекла</b> — доступ закрыт
+    {% elif subscription_days_left == 0 %}<b>Подписка истекает сегодня</b>
+    {% else %}<b>Подписка истекает через {{ subscription_days_left }} дн.</b>{% endif %}
   </div>
 </div>
 {% endif %}
@@ -58,9 +51,7 @@
 <div class="announcements-header">
   <span class="announcements-label">Важное от старосты</span>
   {% if announcements_total > 3 %}
-  <a href="{% url 'announcements' %}" class="announcements-more">
-    Все объявления ({{ announcements_total }}) →
-  </a>
+  <a href="{% url 'announcements' %}" class="announcements-more">Все ({{ announcements_total }}) →</a>
   {% endif %}
 </div>
 <div class="announcements">
@@ -73,14 +64,12 @@
         <span class="announcement-date">{{ a.created_at|date:"d.m.Y H:i" }}</span>
       </div>
       <div class="announcement-text">{{ a.text }}</div>
-
       {% if a.images.all %}
       <div class="announcement-images">
         {% for img in a.images.all %}
         <span class="ann-img">
                 <a href="{{ img.image.url }}" target="_blank" rel="noopener">
-                  <img src="{{ img.image.url }}" alt=""
-                       loading="lazy" decoding="async" width="400" height="300">
+                  <img src="{{ img.image.url }}" alt="" loading="lazy" decoding="async">
                 </a>
                 {% if can_edit %}
                   <form method="post" action="{% url 'announcement_image_delete' img.pk %}" class="ann-img-del">
@@ -92,7 +81,6 @@
         {% endfor %}
       </div>
       {% endif %}
-
       {% if a.author %}<div class="announcement-author">— {{ a.author.short_name }}</div>{% endif %}
     </div>
     {% if can_edit %}
@@ -100,7 +88,7 @@
       <a href="{% url 'announcement_update' a.pk %}" class="btn ghost small">✎</a>
       <form method="post" action="{% url 'announcement_delete' a.pk %}" style="display:inline">
         {% csrf_token %}
-        <button type="submit" class="btn danger small" title="Удалить">×</button>
+        <button type="submit" class="btn danger small">×</button>
       </form>
     </div>
     {% endif %}
@@ -110,29 +98,23 @@
 {% endif %}
 
 <div class="week-nav">
-  <a href="?week={{ week_prev }}" class="week-arrow" title="Предыдущая неделя">←</a>
+  <a href="?week={{ week_prev }}" class="week-arrow">←</a>
   <div class="week-nav-center">
     <div class="week-nav-label">{{ week_label }}</div>
     <div class="week-nav-meta {% if week_offset == 0 %}is-current{% endif %}">
-      {% if week_offset == 0 %}
-      Текущая неделя · {{ total_week }} пар
-      {% elif week_offset == -1 %}
-      Прошлая неделя · {{ total_week }} пар
-      {% elif week_offset == 1 %}
-      Следующая неделя · {{ total_week }} пар
-      {% else %}
-      {{ total_week }} пар на неделе
-      {% endif %}
+      {% if week_offset == 0 %}Текущая · {{ total_week }} пар
+      {% elif week_offset == -1 %}Прошлая · {{ total_week }} пар
+      {% elif week_offset == 1 %}Следующая · {{ total_week }} пар
+      {% else %}{{ total_week }} пар{% endif %}
     </div>
   </div>
-  <a href="?week={{ week_next }}" class="week-arrow" title="Следующая неделя">→</a>
+  <a href="?week={{ week_next }}" class="week-arrow">→</a>
 </div>
 
 <div class="days-strip">
   {% for d in days %}
   <a href="?week={{ week_offset }}&day={{ d.index }}"
-     class="day-card {% if d.index == active_day %}active{% endif %} {% if d.is_today %}today{% endif %} {% if d.important_day %}important{% endif %}"
-     title="{{ d.weekday_name }}, {{ d.date|date:'d.m.Y' }}{% if d.important_day %} — {{ d.important_day.title }}{% endif %}">
+     class="day-card {% if d.index == active_day %}active{% endif %} {% if d.is_today %}today{% endif %} {% if d.important_day %}important{% endif %}">
     <span class="day-name">{{ d.weekday_short }}</span>
     <span class="day-num">{{ d.day_num }}</span>
     <span class="day-month">{{ d.month_short }}</span>
@@ -165,34 +147,22 @@
   <span class="em">🔴</span>
   <div class="txt">
     <b>{{ active_day_data.important_day.title }}</b>
-    <div class="desc">Важный день — обратите внимание</div>
+    <div class="desc">Важный день</div>
   </div>
-  {% if can_edit %}
-  <form method="post" action="{% url 'day_unmark' active_day_data.important_day.pk %}" style="display:inline">
-    {% csrf_token %}
-    <button type="submit" class="btn danger small">Снять</button>
-  </form>
-  {% endif %}
 </div>
 {% endif %}
 
 {% for slot in active_day_data.slots %}
-
-{% if slot.lecture %}
-{% with lec=slot.lecture %}
+{% if slot.lectures %}
+{% for lec in slot.lectures %}
 <div class="lecture type-{{ lec.lecture_type }}">
   <div class="lecture-head">
     <div style="flex:1;min-width:0">
       <div class="lecture-top-row">
-            <span class="type-badge type-badge-{{ lec.lecture_type }}">
-              {{ lec.get_lecture_type_display }}
-            </span>
+        <span class="type-badge type-badge-{{ lec.lecture_type }}">{{ lec.get_lecture_type_display }}</span>
         <span class="time">{{ slot.num }} пара · {{ slot.start }} — {{ slot.end }}</span>
-        {% if lec.groups.count > 1 %}
-        <span style="font-size:11px;color:var(--muted);font-weight:600">
-                👥 {{ lec.groups_label }}
-              </span>
-        {% endif %}
+        {% if lec.subgroup_name %}<span class="subgroup-badge">{{ lec.subgroup_name }}</span>{% endif %}
+        {% if lec.groups.count > 1 %}<span style="font-size:11px;color:var(--muted);font-weight:600">👥 {{ lec.groups_label }}</span>{% endif %}
       </div>
       <div class="subject">{{ lec.subject }}</div>
       <div class="info">
@@ -211,13 +181,9 @@
     <form method="post" action="{% url 'toggle_attendance' lec.pk %}" style="display:inline">
       {% csrf_token %}
       {% if lec.attended_by_me %}
-      <button type="submit" class="attend-btn marked" title="Снять отметку">
-        <span class="check">✓</span> Вы отмечены
-      </button>
+      <button type="submit" class="attend-btn marked"><span class="check">✓</span> Вы отмечены</button>
       {% else %}
-      <button type="submit" class="attend-btn">
-        <span class="check">○</span> Отметиться
-      </button>
+      <button type="submit" class="attend-btn"><span class="check">○</span> Отметиться</button>
       {% endif %}
     </form>
 
@@ -226,9 +192,7 @@
         <span class="progress-count">{{ lec.attendance_count }} / {{ total_students }}</span>
         <span class="progress-label">отметилось</span>
       </div>
-      <div class="progress-bar">
-        <div class="progress-fill" style="width: {{ lec.attendance_percent }}%"></div>
-      </div>
+      <div class="progress-bar"><div class="progress-fill" style="width: {{ lec.attendance_percent }}%"></div></div>
     </div>
   </div>
 
@@ -245,44 +209,29 @@
 
   {% if lec.materials.all or can_edit %}
   <div class="materials">
-    <div class="materials-title">📚 Конспекты и материалы</div>
+    <div class="materials-title">📚 Материалы</div>
     {% if lec.materials.all %}
     <div class="attachments">
       {% for m in lec.materials.all %}
       {% if m.is_image %}
       <span class="attachment-image">
                     <a href="{{ m.file.url }}" target="_blank" rel="noopener">
-                      <img src="{{ m.file.url }}" alt="{{ m.title }}"
-                           loading="lazy" decoding="async" width="200" height="150">
+                      <img src="{{ m.file.url }}" alt="" loading="lazy" decoding="async">
                     </a>
-                    {% if can_edit %}
-                      <form method="post" action="{% url 'material_delete' m.pk %}" class="attachment-image-del">
-                        {% csrf_token %}
-                        <button type="submit" class="att-del" title="Удалить">×</button>
-                      </form>
-                    {% endif %}
+                    {% if can_edit %}<form method="post" action="{% url 'material_delete' m.pk %}" class="attachment-image-del">{% csrf_token %}<button type="submit" class="att-del">×</button></form>{% endif %}
                   </span>
       {% else %}
       <span class="attachment">
                     <a href="{{ m.file.url }}" target="_blank" rel="noopener">📄 {{ m.title }}</a>
-                    {% if can_edit %}
-                      <form method="post" action="{% url 'material_delete' m.pk %}" style="display:inline">
-                        {% csrf_token %}
-                        <button type="submit" class="att-del" title="Удалить">×</button>
-                      </form>
-                    {% endif %}
+                    {% if can_edit %}<form method="post" action="{% url 'material_delete' m.pk %}" style="display:inline">{% csrf_token %}<button type="submit" class="att-del">×</button></form>{% endif %}
                   </span>
       {% endif %}
       {% endfor %}
     </div>
     {% else %}
-    <div class="hw-empty">Материалов пока нет</div>
+    <div class="hw-empty">Материалов нет</div>
     {% endif %}
-    {% if can_edit %}
-    <div style="margin-top:10px">
-      <a href="{% url 'material_create' lec.pk %}" class="btn ghost small">+ Прикрепить материал</a>
-    </div>
-    {% endif %}
+    {% if can_edit %}<div style="margin-top:10px"><a href="{% url 'material_create' lec.pk %}" class="btn ghost small">+ Материал</a></div>{% endif %}
   </div>
   {% endif %}
 
@@ -296,52 +245,32 @@
       {% if a.is_image %}
       <span class="attachment-image">
                     <a href="{{ a.file.url }}" target="_blank" rel="noopener">
-                      <img src="{{ a.file.url }}" alt="{{ a.filename }}"
-                           loading="lazy" decoding="async" width="200" height="150">
+                      <img src="{{ a.file.url }}" alt="" loading="lazy" decoding="async">
                     </a>
-                    {% if can_edit %}
-                      <form method="post" action="{% url 'attachment_delete' a.pk %}" class="attachment-image-del">
-                        {% csrf_token %}
-                        <button type="submit" class="att-del" title="Удалить">×</button>
-                      </form>
-                    {% endif %}
+                    {% if can_edit %}<form method="post" action="{% url 'attachment_delete' a.pk %}" class="attachment-image-del">{% csrf_token %}<button type="submit" class="att-del">×</button></form>{% endif %}
                   </span>
       {% else %}
       <span class="attachment">
                     <a href="{{ a.file.url }}" target="_blank" rel="noopener">📎 {{ a.filename }}</a>
-                    {% if can_edit %}
-                      <form method="post" action="{% url 'attachment_delete' a.pk %}" style="display:inline">
-                        {% csrf_token %}
-                        <button type="submit" class="att-del" title="Удалить">×</button>
-                      </form>
-                    {% endif %}
+                    {% if can_edit %}<form method="post" action="{% url 'attachment_delete' a.pk %}" style="display:inline">{% csrf_token %}<button type="submit" class="att-del">×</button></form>{% endif %}
                   </span>
       {% endif %}
       {% endfor %}
     </div>
     {% endif %}
-    {% if can_edit %}
-    <div style="margin-top:14px">
-      <a href="{% url 'homework_update' hw.pk %}" class="btn ghost small">Изменить ДЗ</a>
-    </div>
-    {% endif %}
+    {% if can_edit %}<div style="margin-top:14px"><a href="{% url 'homework_update' hw.pk %}" class="btn ghost small">Изменить</a></div>{% endif %}
   </div>
   {% empty %}
   <div class="hw">
     <div class="hw-empty">ДЗ не задано</div>
-    {% if can_edit %}
-    <div style="margin-top:14px">
-      <a href="{% url 'homework_create' lec.pk %}" class="btn small">+ Добавить ДЗ</a>
-    </div>
-    {% endif %}
+    {% if can_edit %}<div style="margin-top:14px"><a href="{% url 'homework_create' lec.pk %}" class="btn small">+ ДЗ</a></div>{% endif %}
   </div>
   {% endfor %}
 </div>
-{% endwith %}
+{% endfor %}
 {% else %}
 {% if can_edit %}
-<a href="{% url 'lecture_create' %}?date={{ active_day_data.date|date:'Y-m-d' }}&slot={{ slot.num }}"
-   class="empty-slot">
+<a href="{% url 'lecture_create' %}?date={{ active_day_data.date|date:'Y-m-d' }}&slot={{ slot.num }}" class="empty-slot">
   <span class="empty-slot-num">{{ slot.num }} пара</span>
   <span class="empty-slot-time">{{ slot.start }} — {{ slot.end }}</span>
   <span class="empty-slot-plus">+ Заполнить</span>
@@ -354,11 +283,7 @@
 </div>
 {% endif %}
 {% endif %}
-
-{% if slot.break_to %}
-<div class="slot-break">Перерыв {{ slot.end }}–{{ slot.break_to }}</div>
-{% endif %}
-
+{% if slot.break_to %}<div class="slot-break">Перерыв {{ slot.end }}–{{ slot.break_to }}</div>{% endif %}
 {% endfor %}
 
 {% endif %}

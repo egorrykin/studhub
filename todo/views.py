@@ -4,7 +4,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db.models import Prefetch, Count
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.views import View
@@ -14,12 +14,13 @@ from django.views.generic import (
 
 from .forms import (
     LectureForm, HomeworkForm, MaterialForm, AnnouncementForm,
-    WeekCopyForm, StudentCreateForm, ImportantDayForm, GroupTemplateForm,
+    WeekCopyForm, StudentCreateForm, StudentEditForm, ImportantDayForm,
+    GroupTemplateForm, LectureTemplateForm, SubgroupForm,
 )
 from .models import (
     Lecture, Homework, Attachment, LectureMaterial, Attendance,
     Announcement, AnnouncementImage, User, StudentProfile, ClickerProfile,
-    Respect, Group, ImportantDay, GroupTemplate, SLOTS,
+    Respect, Group, Subgroup, ImportantDay, GroupTemplate, LectureTemplate, SLOTS,
 )
 from .utils import (
     check_file_size, check_group_storage, check_groups_storage,
@@ -48,20 +49,32 @@ def _no_group_message(request):
     messages.error(request, 'Вы не привязаны к группе. Обратитесь к администратору.')
 
 
-def _check_conflicts(lecture_date, slot, groups, exclude_pk=None):
+def _check_conflicts(lecture_date, slot, groups, subgroup_name='', exclude_pk=None):
+    """Проверяет конфликт по группам и подгруппе."""
     qs = Lecture.objects.filter(date=lecture_date, slot=slot, groups__in=groups)
     if exclude_pk:
         qs = qs.exclude(pk=exclude_pk)
-    conflict = qs.first()
-    if conflict:
-        return conflict.groups.first().name if conflict.groups.exists() else '?'
+    # Конфликт, если у одной группы две пары в один слот,
+    # И (обе — на всю группу, ИЛИ одна на всю группу, ИЛИ совпадают подгруппы)
+    for lec in qs:
+        for g in groups:
+            if not lec.groups.filter(pk=g.pk).exists():
+                continue
+            if (not lec.subgroup_name) or (not subgroup_name) or (lec.subgroup_name == subgroup_name):
+                return g.name
     return None
 
 
-def _visible_templates(user):
+def _visible_group_templates(user):
     if user.is_superuser:
         return GroupTemplate.objects.prefetch_related('groups').all()
     return GroupTemplate.objects.prefetch_related('groups').filter(created_by=user)
+
+
+def _visible_lecture_templates(user):
+    if user.is_superuser:
+        return LectureTemplate.objects.all()
+    return LectureTemplate.objects.filter(created_by=user)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -78,7 +91,6 @@ class ScheduleView(LoginRequiredMixin, ListView):
         if not group:
             return Lecture.objects.none()
 
-        # Диапазон: текущая неделя ± 8 недель. Не тянем весь архив.
         try:
             week_offset = int(self.request.GET.get('week', 0))
         except (ValueError, TypeError):
@@ -88,7 +100,6 @@ class ScheduleView(LoginRequiredMixin, ListView):
         start = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
         end = start + timedelta(days=6)
 
-        # Предзагружаем только нужное: ДЗ+файлы, материалы, отметки
         return (Lecture.objects
         .filter(groups=group, date__gte=start, date__lte=end)
         .select_related('created_by')
@@ -101,6 +112,7 @@ class ScheduleView(LoginRequiredMixin, ListView):
                 queryset=Attendance.objects.select_related('student').only(
                     'id', 'lecture_id', 'student_id',
                     'student__id', 'student__full_name', 'student__email',
+                    'student__group_id', 'student__subgroup_id',
                 ),
             ),
         ))
@@ -112,10 +124,9 @@ class ScheduleView(LoginRequiredMixin, ListView):
 
         access_locked = False
         access_block_reason = None
-        if group and not user.is_superuser:
-            if not group.is_access_open:
-                access_locked = True
-                access_block_reason = group.access_block_reason
+        if group and not user.is_superuser and not group.is_access_open:
+            access_locked = True
+            access_block_reason = group.access_block_reason
 
         ctx['access_locked'] = access_locked
         ctx['access_block_reason'] = access_block_reason
@@ -129,18 +140,11 @@ class ScheduleView(LoginRequiredMixin, ListView):
                     'date': date.today(), 'weekday_name': '',
                     'is_today': True, 'slots': [], 'important_day': None,
                 },
-                'week_offset': 0,
-                'week_prev': -1,
-                'week_next': 1,
-                'week_label': '',
-                'can_edit': False,
-                'today': date.today(),
-                'total_week': 0,
-                'total_students': 0,
-                'announcements': [],
-                'announcements_total': 0,
-                'no_group': group is None,
-                'subscription_days_left': None,
+                'week_offset': 0, 'week_prev': -1, 'week_next': 1,
+                'week_label': '', 'can_edit': False,
+                'today': date.today(), 'total_week': 0, 'total_students': 0,
+                'announcements': [], 'announcements_total': 0,
+                'no_group': group is None, 'subscription_days_left': None,
             })
             return ctx
 
@@ -156,18 +160,17 @@ class ScheduleView(LoginRequiredMixin, ListView):
 
         lectures = list(self.get_queryset())
 
-        # Кешируем количество студентов в группе на 5 минут
         cache_key = f'group_size:{group.pk}'
         total_students = cache.get(cache_key)
         if total_students is None:
-            total_students = User.objects.filter(
-                is_active=True, group=group
-            ).count()
+            total_students = User.objects.filter(is_active=True, group=group).count()
             cache.set(cache_key, total_students, 300)
 
-        lec_map = {(l.date, l.slot): l for l in lectures}
+        lec_map = {}
+        for l in lectures:
+            key = (l.date, l.slot)
+            lec_map.setdefault(key, []).append(l)
 
-        # ImportantDays — 1 запрос
         imp_map = {
             i.date: i for i in ImportantDay.objects.filter(
                 group=group, date__gte=start_of_week, date__lte=end_of_week,
@@ -180,22 +183,38 @@ class ScheduleView(LoginRequiredMixin, ListView):
             slots_data = []
             for idx, (num, t_start, t_end) in enumerate(SLOTS):
                 next_start = SLOTS[idx + 1][1] if idx + 1 < len(SLOTS) else None
-                lec = lec_map.get((d, num))
-                if lec:
-                    all_atts = list(lec.attendances.all())
+                lec_list = lec_map.get((d, num), [])
+                # Показываем пользователю только те пары, что ему доступны
+                visible = []
+                for lec in lec_list:
+                    # Фильтр по подгруппе пользователя
+                    if lec.subgroup_name:
+                        if not user.subgroup_id or user.subgroup.name != lec.subgroup_name:
+                            continue
+                    # Отметки — только из своей группы
+                    all_atts = [a for a in lec.attendances.all()
+                                if a.student.group_id == user.group_id]
                     lec.attended_by_me = any(a.student_id == user.pk for a in all_atts)
                     lec.attendance_count = len(all_atts)
-                    lec.attendance_percent = round(
-                        lec.attendance_count * 100 / total_students
-                    ) if total_students else 0
-                    # Не тянем полный объект User в attendees — уже select_related
+                    # Считаем процент от студентов, попадающих в подгруппу
+                    if lec.subgroup_name:
+                        denom = User.objects.filter(
+                            is_active=True, group=user.group,
+                            subgroup__name=lec.subgroup_name,
+                        ).count()
+                    else:
+                        denom = total_students
+                    lec.attendance_percent = round(lec.attendance_count * 100 / denom) if denom else 0
                     lec.attendees = [
                         {'student': a.student, 'is_me': a.student_id == user.pk}
                         for a in all_atts
                     ]
+                    visible.append(lec)
+
                 slots_data.append({
                     'num': num, 'start': t_start, 'end': t_end,
-                    'break_to': next_start, 'lecture': lec,
+                    'break_to': next_start,
+                    'lectures': visible,
                 })
             days.append({
                 'index': i, 'date': d,
@@ -203,7 +222,7 @@ class ScheduleView(LoginRequiredMixin, ListView):
                 'day_num': d.day, 'month_short': MONTH_SHORT[d.month - 1],
                 'month_gen': MONTH_GEN[d.month - 1],
                 'slots': slots_data,
-                'lectures_count': sum(1 for s in slots_data if s['lecture']),
+                'lectures_count': sum(len(s['lectures']) for s in slots_data),
                 'is_today': d == today,
                 'important_day': imp_map.get(d),
             })
@@ -231,12 +250,11 @@ class ScheduleView(LoginRequiredMixin, ListView):
             week_label = (f"{start_of_week.day} {MONTH_GEN[start_of_week.month - 1]} — "
                           f"{end_of_week.day} {MONTH_GEN[end_of_week.month - 1]}")
 
-        # Объявления — только id/title/text/created_at + картинки одной пачкой
         ann_qs = (Announcement.objects
                   .filter(group=group)
-                  .only('id', 'title', 'text', 'is_pinned', 'created_at', 'author__id',
-                        'author__full_name', 'author__email')
                   .select_related('author')
+                  .only('id', 'title', 'text', 'is_pinned', 'created_at',
+                        'author__id', 'author__full_name', 'author__email')
                   .prefetch_related('images'))
         ann_list = list(ann_qs[:3])
         ann_total = cache.get(f'ann_total:{group.pk}')
@@ -307,7 +325,8 @@ class LectureCreateView(LoginRequiredMixin, CreateView):
         ctx['lecture_date'] = self.lecture_date
         ctx['slot'] = self.slot
         ctx['slot_time'] = self._slot_time()
-        ctx['templates'] = _visible_templates(self.request.user)
+        ctx['group_templates'] = _visible_group_templates(self.request.user)
+        ctx['lecture_templates'] = _visible_lecture_templates(self.request.user)
         return ctx
 
     def _slot_time(self):
@@ -318,8 +337,9 @@ class LectureCreateView(LoginRequiredMixin, CreateView):
 
     def form_valid(self, form):
         groups = list(form.cleaned_data['groups'])
+        subgroup_name = (form.cleaned_data.get('subgroup_name') or '').strip()
 
-        conflict = _check_conflicts(self.lecture_date, self.slot, groups)
+        conflict = _check_conflicts(self.lecture_date, self.slot, groups, subgroup_name)
         if conflict:
             form.add_error('groups', f'У группы «{conflict}» уже есть пара в этот слот')
             return self.form_invalid(form)
@@ -329,10 +349,7 @@ class LectureCreateView(LoginRequiredMixin, CreateView):
         form.instance.slot = self.slot
         self.object = form.save()
         self.object.groups.set(groups)
-        messages.success(
-            self.request,
-            f'Пара добавлена для групп: {", ".join(g.name for g in groups)}'
-        )
+        messages.success(self.request, 'Пара добавлена')
         return redirect(week_url_for_date(self.object.date))
 
     def get_success_url(self):
@@ -359,13 +376,15 @@ class LectureUpdateView(LoginRequiredMixin, UpdateView):
         ctx['lecture_date'] = self.lecture.date
         ctx['slot'] = self.lecture.slot
         ctx['slot_time'] = f'{self.lecture.time_start} — {self.lecture.time_end}'
-        ctx['templates'] = _visible_templates(self.request.user)
+        ctx['group_templates'] = _visible_group_templates(self.request.user)
+        ctx['lecture_templates'] = _visible_lecture_templates(self.request.user)
         return ctx
 
     def form_valid(self, form):
         groups = list(form.cleaned_data['groups'])
+        subgroup_name = (form.cleaned_data.get('subgroup_name') or '').strip()
         conflict = _check_conflicts(
-            self.lecture.date, self.lecture.slot, groups,
+            self.lecture.date, self.lecture.slot, groups, subgroup_name,
             exclude_pk=self.lecture.pk,
         )
         if conflict:
@@ -410,6 +429,102 @@ class LectureDeleteView(LoginRequiredMixin, DeleteView):
 
 
 # ═══════════════════════════════════════════════════════════════
+# ШАБЛОНЫ ПАР
+# ═══════════════════════════════════════════════════════════════
+
+class LectureTemplatesView(LoginRequiredMixin, View):
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+        if not request.user.can_edit:
+            raise PermissionDenied
+        return super().dispatch(request, *args, **kwargs)
+
+    def _ctx(self, form=None):
+        return {
+            'form': form or LectureTemplateForm(),
+            'templates': _visible_lecture_templates(self.request.user),
+        }
+
+    def get(self, request):
+        return render(request, 'todo/lecture_templates.html', self._ctx())
+
+    def post(self, request):
+        form = LectureTemplateForm(request.POST)
+        if form.is_valid():
+            obj = form.save(commit=False)
+            obj.created_by = request.user
+            obj.save()
+            messages.success(request, f'Шаблон создан: {obj.subject}')
+            return redirect('lecture_templates')
+        return render(request, 'todo/lecture_templates.html', self._ctx(form=form))
+
+
+class LectureTemplateDeleteView(LoginRequiredMixin, View):
+    def post(self, request, pk):
+        if not request.user.can_edit:
+            raise PermissionDenied
+        obj = get_object_or_404(LectureTemplate, pk=pk)
+        if (not request.user.is_superuser and obj.created_by_id != request.user.pk):
+            raise PermissionDenied
+        obj.delete()
+        messages.success(request, 'Шаблон удалён')
+        return redirect('lecture_templates')
+
+
+# ═══════════════════════════════════════════════════════════════
+# ПОДГРУППЫ
+# ═══════════════════════════════════════════════════════════════
+
+class SubgroupsView(LoginRequiredMixin, View):
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+        if not request.user.can_edit:
+            raise PermissionDenied
+        if not request.user.group_id:
+            _no_group_message(request)
+            return redirect('schedule')
+        return super().dispatch(request, *args, **kwargs)
+
+    def _ctx(self, form=None):
+        return {
+            'form': form or SubgroupForm(),
+            'subgroups': Subgroup.objects.filter(group=self.request.user.group),
+        }
+
+    def get(self, request):
+        return render(request, 'todo/subgroups.html', self._ctx())
+
+    def post(self, request):
+        form = SubgroupForm(request.POST)
+        if form.is_valid():
+            obj = form.save(commit=False)
+            obj.group = request.user.group
+            try:
+                obj.save()
+                messages.success(request, f'Подгруппа добавлена: {obj.name}')
+                return redirect('subgroups')
+            except Exception:
+                form.add_error('name', 'Подгруппа с таким именем уже есть')
+        return render(request, 'todo/subgroups.html', self._ctx(form=form))
+
+
+class SubgroupDeleteView(LoginRequiredMixin, View):
+    def post(self, request, pk):
+        if not request.user.can_edit:
+            raise PermissionDenied
+        sg = get_object_or_404(Subgroup, pk=pk)
+        if (not request.user.is_superuser and sg.group_id != request.user.group_id):
+            raise PermissionDenied
+        # Отвязываем пользователей
+        User.objects.filter(subgroup=sg).update(subgroup=None)
+        sg.delete()
+        messages.success(request, 'Подгруппа удалена')
+        return redirect('subgroups')
+
+
+# ═══════════════════════════════════════════════════════════════
 # ВАЖНЫЕ ДНИ
 # ═══════════════════════════════════════════════════════════════
 
@@ -441,7 +556,7 @@ class ImportantDayCreateView(LoginRequiredMixin, View):
     def post(self, request):
         form = ImportantDayForm(request.POST)
         if form.is_valid():
-            obj, created = ImportantDay.objects.update_or_create(
+            obj, _ = ImportantDay.objects.update_or_create(
                 group=request.user.group,
                 date=form.cleaned_data['date'],
                 defaults={'title': form.cleaned_data['title']},
@@ -456,8 +571,7 @@ class ImportantDayDeleteView(LoginRequiredMixin, View):
         if not request.user.can_edit:
             raise PermissionDenied
         obj = get_object_or_404(ImportantDay, pk=pk)
-        if (not request.user.is_superuser
-                and obj.group_id != request.user.group_id):
+        if (not request.user.is_superuser and obj.group_id != request.user.group_id):
             raise PermissionDenied
         d = obj.date
         obj.delete()
@@ -537,16 +651,15 @@ class WeekCopyView(LoginRequiredMixin, TemplateView):
         my_group = request.user.group
         src_lectures = list(self._week_lectures(source))
 
-        created = 0
-        skipped = 0
-        replaced = 0
+        created = skipped = replaced = 0
 
         for lec in src_lectures:
             delta_days = (lec.date - from_monday).days
             new_date = to_monday + timedelta(days=delta_days)
 
             existing = Lecture.objects.filter(
-                date=new_date, slot=lec.slot, groups=my_group
+                date=new_date, slot=lec.slot, groups=my_group,
+                subgroup_name=lec.subgroup_name,
             ).first()
 
             if existing:
@@ -564,6 +677,7 @@ class WeekCopyView(LoginRequiredMixin, TemplateView):
             new_lec = Lecture.objects.create(
                 subject=lec.subject, lecture_type=lec.lecture_type,
                 teacher=lec.teacher, room=lec.room,
+                subgroup_name=lec.subgroup_name,
                 date=new_date, slot=lec.slot, created_by=request.user,
             )
             new_lec.groups.set([my_group])
@@ -620,7 +734,7 @@ class HomeworkCreateView(LoginRequiredMixin, CreateView):
         response = super().form_valid(form)
         for cf in processed:
             Attachment.objects.create(homework=self.object, file=cf)
-        messages.success(self.request, f'ДЗ добавлено · загружено {len(processed)} файл(ов)')
+        messages.success(self.request, f'ДЗ добавлено · {len(processed)} файл(ов)')
         return response
 
     def get_success_url(self):
@@ -890,8 +1004,7 @@ class AnnouncementDeleteView(LoginRequiredMixin, View):
         if not request.user.can_edit:
             raise PermissionDenied
         a = get_object_or_404(Announcement, pk=pk)
-        if (not request.user.is_superuser
-                and a.group_id != request.user.group_id):
+        if (not request.user.is_superuser and a.group_id != request.user.group_id):
             raise PermissionDenied
         for img in a.images.all():
             img.image.delete(save=False)
@@ -925,37 +1038,31 @@ class ClickerView(LoginRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         user = self.request.user
 
-        # ВАЖНО: убрали цикл по всем пользователям (был N+1).
-        # Профили создаются автоматически через signal post_save User.
-        # Если у пользователя нет профиля — создаём только его.
-
         my_profile, _ = ClickerProfile.objects.get_or_create(user=user)
         my_profile.apply_auto()
 
-        # Лидер группы пользователя — 1 запрос
+        # Лидер группы — сортировка по уровню, потом по score
         top_group = None
         if user.group_id:
-            top_group = (ClickerProfile.objects
-                         .select_related('user')
-                         .only('id', 'score', 'level', 'user_id', 'user__id',
-                               'user__full_name', 'user__email', 'user__group_id')
-                         .filter(user__group=user.group, user__is_active=True)
-                         .order_by('-score')
-                         .first())
-            if top_group and top_group.score <= 0:
-                top_group = None
+            profiles_group = list(
+                ClickerProfile.objects
+                .select_related('user')
+                .filter(user__group=user.group, user__is_active=True)
+            )
+            profiles_group.sort(key=lambda p: (-p.level_num, -p.score))
+            if profiles_group and profiles_group[0].score > 0:
+                top_group = profiles_group[0]
 
-        # Рекорд сайта — 1 запрос, но кешируем на 30 секунд
-        top_site = cache.get('clicker_top_site')
+        # Рекорд сайта — по уровню
+        cache_key = 'clicker_top_site_v2'
+        top_site = cache.get(cache_key)
         if top_site is None:
-            top_site = (ClickerProfile.objects
-                        .select_related('user', 'user__group')
-                        .filter(user__is_active=True)
-                        .order_by('-score')
-                        .first())
-            if top_site and top_site.score <= 0:
-                top_site = None
-            cache.set('clicker_top_site', top_site, 30)
+            all_p = list(ClickerProfile.objects
+                         .select_related('user', 'user__group')
+                         .filter(user__is_active=True))
+            all_p.sort(key=lambda p: (-p.level_num, -p.score))
+            top_site = all_p[0] if all_p and all_p[0].score > 0 else None
+            cache.set(cache_key, top_site, 30)
 
         if top_site and top_group and top_site.pk == top_group.pk:
             top_site = None
@@ -992,7 +1099,7 @@ class StudentsView(LoginRequiredMixin, TemplateView):
 
         students = list(
             User.objects.filter(is_active=True, group=group)
-            .select_related('student_profile')
+            .select_related('student_profile', 'subgroup')
             .prefetch_related('respects__author')
             .order_by('full_name', 'email')
         )
@@ -1017,46 +1124,73 @@ class StudentCreateView(LoginRequiredMixin, View):
             return redirect('schedule')
         return super().dispatch(request, *args, **kwargs)
 
-    def get(self, request):
+    def _render(self, request, form):
         from django.conf import settings
-        return render(request, 'todo/student_create.html', {
-            'form': StudentCreateForm(),
-            'YANDEX_SMARTCAPTCHA_CLIENT_KEY': getattr(
-                settings, 'YANDEX_SMARTCAPTCHA_CLIENT_KEY', ''
-            ),
-        })
-
-    def post(self, request):
-        from django.conf import settings
-        form = StudentCreateForm(request.POST)
-        if form.is_valid():
-            # Проверка SmartCaptcha
-            captcha_token = request.POST.get('smart-token', '')
-            ip = get_client_ip(request)
-
-            if not verify_smartcaptcha(captcha_token, ip):
-                form.add_error(None, 'Не пройдена проверка капчи. Попробуйте ещё раз.')
-                return render(request, 'todo/student_create.html', {
-                    'form': form,
-                    'YANDEX_SMARTCAPTCHA_CLIENT_KEY': getattr(
-                        settings, 'YANDEX_SMARTCAPTCHA_CLIENT_KEY', ''
-                    ),
-                })
-
-            data = form.cleaned_data
-            User.objects.create_user(
-                email=data['email'], password=data['password'],
-                full_name=data['full_name'], role=data['role'],
-                group=request.user.group,
-            )
-            messages.success(request, f'Аккаунт создан: {data["email"]}')
-            return redirect('students')
-
         return render(request, 'todo/student_create.html', {
             'form': form,
             'YANDEX_SMARTCAPTCHA_CLIENT_KEY': getattr(
                 settings, 'YANDEX_SMARTCAPTCHA_CLIENT_KEY', ''
             ),
+        })
+
+    def get(self, request):
+        return self._render(request, StudentCreateForm(group=request.user.group))
+
+    def post(self, request):
+        form = StudentCreateForm(request.POST, group=request.user.group)
+        if form.is_valid():
+            captcha_token = request.POST.get('smart-token', '')
+            ip = get_client_ip(request)
+            if not verify_smartcaptcha(captcha_token, ip):
+                form.add_error(None, 'Не пройдена проверка капчи. Попробуйте ещё раз.')
+                return self._render(request, form)
+
+            data = form.cleaned_data
+            User.objects.create_user(
+                email=data['email'], password=data['password'],
+                full_name=data['full_name'], role=data['role'],
+                group=request.user.group, subgroup=data.get('subgroup'),
+            )
+            messages.success(request, f'Аккаунт создан: {data["email"]}')
+            return redirect('students')
+        return self._render(request, form)
+
+
+class StudentEditView(LoginRequiredMixin, View):
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+        if not request.user.can_edit:
+            raise PermissionDenied
+        return super().dispatch(request, *args, **kwargs)
+
+    def _get_target(self, request, pk):
+        target = get_object_or_404(User, pk=pk)
+        if (not request.user.is_superuser
+                and target.group_id != request.user.group_id):
+            raise PermissionDenied
+        return target
+
+    def get(self, request, pk):
+        target = self._get_target(request, pk)
+        form = StudentEditForm(user=target, group=request.user.group)
+        return render(request, 'todo/student_edit.html', {
+            'form': form, 'target': target,
+        })
+
+    def post(self, request, pk):
+        target = self._get_target(request, pk)
+        form = StudentEditForm(request.POST, user=target, group=request.user.group)
+        if form.is_valid():
+            target.email = form.cleaned_data['email']
+            target.full_name = form.cleaned_data['full_name']
+            target.role = form.cleaned_data['role']
+            target.subgroup = form.cleaned_data.get('subgroup')
+            target.save()
+            messages.success(request, f'Профиль {target.short_name} обновлён')
+            return redirect('students')
+        return render(request, 'todo/student_edit.html', {
+            'form': form, 'target': target,
         })
 
 
@@ -1071,8 +1205,7 @@ class StudentDeleteView(LoginRequiredMixin, View):
         if target.is_superuser:
             messages.error(request, 'Нельзя удалить администратора')
             return redirect('students')
-        if (not request.user.is_superuser
-                and target.group_id != request.user.group_id):
+        if (not request.user.is_superuser and target.group_id != request.user.group_id):
             raise PermissionDenied
 
         email = target.email
@@ -1091,8 +1224,7 @@ class AddRespectView(LoginRequiredMixin, View):
         if not request.user.can_edit:
             raise PermissionDenied
         student = get_object_or_404(User, pk=pk)
-        if (not request.user.is_superuser
-                and student.group_id != request.user.group_id):
+        if (not request.user.is_superuser and student.group_id != request.user.group_id):
             raise PermissionDenied
         try:
             value = int(request.POST.get('value', 1))
@@ -1103,10 +1235,7 @@ class AddRespectView(LoginRequiredMixin, View):
         comment = (request.POST.get('comment') or '').strip()[:200]
         Respect.objects.create(student=student, author=request.user,
                                value=value, comment=comment)
-        if value > 0:
-            messages.success(request, f'❤️ +1 {student.short_name}' + (f' — «{comment}»' if comment else ''))
-        else:
-            messages.success(request, f'−1 {student.short_name}' + (f' — «{comment}»' if comment else ''))
+        messages.success(request, 'Респект добавлен')
         return redirect('students')
 
 
@@ -1115,8 +1244,7 @@ class DeleteRespectView(LoginRequiredMixin, View):
         if not request.user.can_edit:
             raise PermissionDenied
         r = get_object_or_404(Respect, pk=pk)
-        if (not request.user.is_superuser
-                and r.student.group_id != request.user.group_id):
+        if (not request.user.is_superuser and r.student.group_id != request.user.group_id):
             raise PermissionDenied
         r.delete()
         messages.success(request, 'Удалено')
@@ -1128,8 +1256,7 @@ class SaveNoteView(LoginRequiredMixin, View):
         if not request.user.can_edit:
             raise PermissionDenied
         student = get_object_or_404(User, pk=pk)
-        if (not request.user.is_superuser
-                and student.group_id != request.user.group_id):
+        if (not request.user.is_superuser and student.group_id != request.user.group_id):
             raise PermissionDenied
         profile, _ = StudentProfile.objects.get_or_create(user=student)
         profile.note = request.POST.get('note', '')
@@ -1153,7 +1280,7 @@ class TemplatesManageView(LoginRequiredMixin, View):
     def _ctx(self, form=None):
         return {
             'form': form or GroupTemplateForm(),
-            'templates': _visible_templates(self.request.user),
+            'templates': _visible_group_templates(self.request.user),
         }
 
     def get(self, request):
@@ -1176,12 +1303,10 @@ class TemplateDeleteView(LoginRequiredMixin, View):
         if not request.user.can_edit:
             raise PermissionDenied
         tpl = get_object_or_404(GroupTemplate, pk=pk)
-        if (not request.user.is_superuser
-                and tpl.created_by_id != request.user.pk):
+        if (not request.user.is_superuser and tpl.created_by_id != request.user.pk):
             raise PermissionDenied
-        name = tpl.name
         tpl.delete()
-        messages.success(request, 'Шаблон удалён: ' + name)
+        messages.success(request, 'Шаблон удалён')
         return redirect('templates_manage')
 
 
